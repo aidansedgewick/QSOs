@@ -1,11 +1,20 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import pandas as pd
+
 import scipy.integrate as integrate
+from scipy.interpolate import interp1d
 from scipy.special import wofz
-from scipy.ndimage.filters import gaussian_filter1d
-from scipy import interpolate
-from collections import namedtuple
+import astropy.io.fits as fits
+import astropy.units as u
+
+from linetools.spectra.xspectrum1d import XSpectrum1D as xspec
+
+import pickle
+import time
 import sys
+import os
+
 
 workdir = './' #'/home/aidan/PostGrad/QSOs2/' ## **DO NOT** use "~" for $HOME, pyfits doesn't like it!!
 
@@ -45,6 +54,8 @@ SDSS_resolution = 2.0
 SDSS_wave = np.arange(SDSS_min, SDSS_max, SDSS_wv_resolution)
 
 SDSS_z_min = SDSS_min/Lya-1
+
+min_col_density = 17.0
 
 
 ###------------------ LOAD THE COMPOSITE --------------------###
@@ -239,7 +250,7 @@ def generate_spectrum(z_QSO,sig1=0.1,sig2=0.1,wv_min=SDSS_min,wv_max=SDSS_max,wv
     # Lists to store the absorbers.
     absorber_CDs = []
     absorber_zs  = []
-    absorber_bs  = []
+    #absorber_bs  = []
 
 
     ##------ DO SOME ABSORPTION.
@@ -258,7 +269,7 @@ def generate_spectrum(z_QSO,sig1=0.1,sig2=0.1,wv_min=SDSS_min,wv_max=SDSS_max,wv
             if col_density > min_col_density:
                 absorber_CDs.extend( [col_density]*absorber_count )
                 absorber_zs.extend(z_vals)
-                absorber_bs.extend(b_vals)   
+                ## absorber_bs.extend(b_vals)   
 
             # Which "wavelength pixels" do the absorbers correspond to?
             wv_pix   = np.digitize( (1.0+z_vals)*Lya, composite_wv)-1
@@ -287,20 +298,20 @@ def generate_spectrum(z_QSO,sig1=0.1,sig2=0.1,wv_min=SDSS_min,wv_max=SDSS_max,wv
 
     convolved_flux = convolved_xspec.flux.copy()
 
-    sigma = sig1 + sig2*observed_flux
-    observed_flux = np.random.normal(observed_flux,sigma)
+    sigma = sig1 + sig2*convolved_flux
+    observed_flux = np.random.normal(convolved_flux,sigma)
 
     absorber_CDs = np.array(absorber_CDs) # > 
     absorber_zs  = np.array(absorber_zs)  # > Arrays are nicer to deal with...
-    absorber_bs  = np.array(absorber_bs)  # >
+    #absorber_bs  = np.array(absorber_bs)  # >
 
     # REVERSE sort the absorbers by Column Density.
     sorted_absorber_indices = np.argsort(absorber_CDs)    
     absorber_CDs = absorber_CDs[ sorted_absorber_indices[::-1] ]
     absorber_zs  = absorber_zs[  sorted_absorber_indices[::-1] ]
-    absorber_bs  = absorber_bs[  sorted_absorber_indices[::-1] ]
+    ## absorber_bs  = absorber_bs[  sorted_absorber_indices[::-1] ]
 
-    return observed_wv,observed_flux,sigma,absorber_CDs,absorber_zs,absorber_bs
+    return observed_wv,observed_flux,sigma,absorber_CDs,absorber_zs#,absorber_bs
 
 
 def get_continuum(zem,wave,flux,flue,hspc=None,kind='smooth'):
@@ -368,9 +379,9 @@ def evaluate_Q(fl,sig):
 def evaluate_scores(wv,fl,sig,Npix):
     '''what is the fastest/best to do this...?
     Unsure.'''
-    
-    score_wave,score_vals = np.zeros(len(Q)),np.zeros(len(Q))
+    Q = evaluate_Q(fl,sig)    
 
+    score_wave,score_vals = np.zeros(len(Q)),np.zeros(len(Q))
     ## Surely there is a less ugly way than a for loop...?!
     for i in range(len(Q)):
         sl_min,sl_max = max(0,i-Npix//2),min(len(Q),i+Npix//2)
@@ -394,21 +405,21 @@ def consecutive(data, stepsize=1):
         return np.split(data, np.where(np.diff(data) != stepsize)[0]+1)
 
 
-def extract_features(scores_wv,scores,z_QSO,threshold=0.0,min_width=3.5,scaled=True):
+def extract_features(z_QSO,scores_wv,score_vals,threshold=0.0,min_width=3.5,scaled=True):
     '''Find consecutive pixels with scores above the threshold.
         Returns their widths, estimated redshifts. '''
 
-    (inds,) = np.where(score_vals > th) # np.where gives a len-1 tuple. unpack it to split...  
+    (inds,) = np.where(score_vals > threshold) # np.where gives a len-1 tuple. unpack it to split...  
     feature_masks = consecutive( inds ) # List of arrays. Each arr is **indices** of consec pix above the thresh.
     
     feature_masks = [fm for fm in feature_masks if len(fm) >= min_width ]
 
-    score_zs = (1.0+z_QSO)*scores_wz
+    score_zs = (1.0+z_QSO)*scores_wv
     
     # SCALE the widths to redshift zero...
     feature_widths = np.array([ len(fm) for fm in feature_masks ])
     feature_zs = np.array([ np.average(score_zs[fm]) for fm in feature_masks ])
-    feature_bs = np.array([ 15.0 for fm in feature_masks ])
+    #feature_bs = np.array([ 15.0 for fm in feature_masks ])
 
     if scaled:
         feature_widths = feature_widths/(1.0+z_QSO)
@@ -416,13 +427,14 @@ def extract_features(scores_wv,scores,z_QSO,threshold=0.0,min_width=3.5,scaled=T
     sorted_feature_indices = np.argsort(feature_widths)
     feature_widths = feature_widths[ sorted_feature_indices[::-1] ]
     feature_zs = feature_zs[ sorted_feature_indices[::-1] ]
-    feature_bs = feature_bs[ sorted_feature_indices[::-1] ]
+    #feature_bs = feature_bs[ sorted_feature_indices[::-1] ]
 
-    return feature_widths,feature_zs,feature_bs
+    return feature_widths,feature_zs #,feature_bs
 
 
-def match_features(z_QSO,absorber_CDs,absorber_zs,absorber_bs,
-                    feature_widths,features_zs,feature_bs,blank_value=-1.0):
+def match_features(z_QSO,absorber_CDs,absorber_zs, #absorber_bs,
+                    feature_widths,feature_zs,#feature_bs,
+                    blank_value=-1.0):
     
     Ntuples = max( len(feature_widths),len(absorber_CDs) )
 
@@ -431,16 +443,16 @@ def match_features(z_QSO,absorber_CDs,absorber_zs,absorber_bs,
     for k in range(Ntuples):
 
         if k >= len(absorber_CDs): # If we have more features than DLAs to associate...
-            this_feature = (i,z_QSO,   blank_value   ,  blank_value ,  blank_value  ,
-                                    feature_widths[k], feature_zs[k], feature_bs[k])
+            this_feature = (z_QSO,   blank_value   ,  blank_value , # blank_value  ,
+                                    feature_widths[k], feature_zs[k]) #, feature_bs[k])
 
         elif k >= len(feature_widths): # If there are undetected DLAs...
-            this_feature = (i,z_QSO,absorber_CDs[k], absorber_zs[k], absorber_bs[k],
-                                       blank_value ,  blank_value  ,  blank_value  )
+            this_feature = (z_QSO,absorber_CDs[k], absorber_zs[k], #absorber_bs[k],
+                                       blank_value ,  blank_value  ) #,  blank_value  )
         
         else: # The 'normal' case where a feature matches a DLA.                
-            this_feature = (i,z_QSO,absorber_CDs[k],absorber_zs[k],absorber_bs[k],
-                                  feature_widths[k], feature_zs[k], feature_bs[k])
+            this_feature = (z_QSO,absorber_CDs[k],absorber_zs[k], #absorber_bs[k],
+                                  feature_widths[k], feature_zs[k]) #, feature_bs[k])
 
         this_QSO.append(this_feature) 
 

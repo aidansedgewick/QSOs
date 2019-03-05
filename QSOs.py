@@ -1,21 +1,23 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import scipy.integrate as integrate
 import pandas as pd
-import astropy.units as u
-import time
-import os
+
+import scipy.integrate as integrate
 from scipy.interpolate import interp1d
-from linetools.spectra.xspectrum1d import XSpectrum1D as xspec
 from scipy.special import wofz
 import astropy.io.fits as fits
+import astropy.units as u
 
-import pickle
-
+from linetools.spectra.xspectrum1d import XSpectrum1D as xspec
 import QSOtools as QT
 
+import pickle
+import time
+import sys
+import os
+
 workdir = QT.workdir 
-pkl_file = workdir + 'data.pkl' 
+pkl_file_loc = workdir + 'data.pkl' 
 
 ### SOME HANDY REFERENCES ###
 #1 PROCHASKA ApJ 675:1002  - gives details of SDSS spec limits
@@ -48,7 +50,7 @@ SDSS_wv_resolution = 2.0
 SDSS_wave = np.arange(SDSS_min, SDSS_max, SDSS_wv_resolution)
 SDSS_smear = [2.0]
 
-SDSS_z_min = SDSS_min/Lya-1
+SDSS_z_min = SDSS_min/Lya-1.0
 
 
 
@@ -67,7 +69,7 @@ min_col_density = 15.0
 min_feature_width = 5
 # No *single* absorber is likely to be wider than 400 Ang...!?
 MW = 400.0 #max_width
-num_QSOs = 10000
+num_QSOs = 100
 
 threshold_vals = np.arange(-10,200,5) # A list of threshold values
 
@@ -75,7 +77,7 @@ threshold_vals = np.arange(-10,200,5) # A list of threshold values
 data_structure = [ [] for i in threshold_vals ]
 
 # If we've done it before...
-pickle_exists = os.path.exists(pkl_file)
+pickle_exists = os.path.exists(pkl_file_loc)
 
 
 t_start = time.time()
@@ -87,39 +89,45 @@ for i in range(num_QSOs):
 
     random_index = np.random.randint(0,len(SDSS_data),1)
     z_QSO = SDSS_data['z'].iloc[random_index].values[0] # [0] selects the 1st (and only!) value in the array.
+    wv_em = (1.0+z_QSO)*Lya
 
-    spec_wv,spec_fl,spec_err,absorber_CDs,absorber_zs = generate_spectrum(z_QSO)
+    
+    ## -----GENERATE A SPECTRUM
+    spec_wv,spec_fl,spec_sig,absorber_CDs,absorber_zs = QT.generate_spectrum(z_QSO)
 
-    prox_wv_min = 
+    prox_wv_min = wv_em + v_min
+    prox_wv_max = wv_em + v_max
 
-    proximate_mask = (wave_min-100 < observed_wv) & (observed_wv < wave_max+100)
+    proximate_mask = (prox_wv_min-100 < spec_wv) & (spec_wv < prox_wv_max+100)
 
-    prox_wave  = SDSS_wave[ proximate_mask ]
-    prox_flux  = spectrum_flux[ proximate_mask ]
-    prox_sigma = sigma[ proximate_mask ]
+    prox_wv  = spec_wv[ proximate_mask ]
+    prox_fl  = spec_fl[ proximate_mask ]
+    prox_sig = spec_sig[ proximate_mask ]
 
     try:
-        prox_cont = QT.get_continuum(z_QSO,prox_wave,prox_flux,prox_sigma,hspc=7,kind='max')
+        prox_cont = QT.get_continuum(z_QSO,prox_wv,prox_fl,prox_sig,hspc=7,kind='max')
         # continuum norm falls over when nmax ("Nmidpoints"?) is zero -- happens
         # for QSOs where only a few wv's are redward of the QSO because of SDSS limit 3800A.
     except:
-        prox_cont = np.ones(len(prox_wave))
+        prox_cont = np.ones(len(prox_wv))
 
-    norm_flux  = prox_flux/prox_cont
-    norm_sigma = prox_sigma/prox_cont
+    norm_fl  = prox_fl/prox_cont
+    norm_sig   = prox_sig/prox_cont
 
     z_window = (1.0+z_QSO)*restframe_window
     Npix = int(z_window/SDSS_wv_resolution)
 
-    score_wv,score_vals = evaluate_scores(prox_wave,norm_flux,norm_sigma,Npix)
-    score_zs = score_wave/Lya - 1.0
+    score_wv,score_vals = QT.evaluate_scores(prox_wv,norm_fl,norm_sig,Npix)
+    score_zs = score_wv/Lya - 1.0
 
     for j,th in enumerate(threshold_vals):
+        # Look at 
+        feature_widths,feature_zs = QT.extract_features(z_QSO,score_wv,score_vals)
         
-        
-
+        # Match the widest feature to the largest column density 
+        QSO_matches = QT.match_features(z_QSO,absorber_CDs,absorber_zs, feature_widths,feature_zs)
     
-
+        data_structure[j].extend(QSO_matches)
 
 
     
@@ -174,16 +182,16 @@ for i in range(num_QSOs):
 
 if pickle_exists is False:
     t_end = time.time()
-    print('\n ~%i per second.' %round(num_QSOs/(t_end-t_start),0) )
+#    print('\n ~%i per second.' %round(num_QSOs/(t_end-t_start),0) )
 
-    with open(pkl_file, 'wb') as f:
-        pickle.dump(data_structure,f)
-else:
-    with open(pkl_file, 'rb') as f:
-        data_structure = pickle.load(f)
+#    with open(pkl_file_loc, 'wb') as f:
+#        pickle.dump(data_structure,f)
+#else:
+#    with open(pkl_file_loc, 'rb') as f:
+#        data_structure = pickle.load(f)
     
 
-cols = 'i z_QSO absorber_CDs absorber_zs absorber_bs feature_widths feature_zs absorber_bs'.split()
+cols = 'z_QSO absorber_CDs absorber_zs feature_widths feature_zs'.split()
 
 #completeness  = np.zeros(len(threshold_vals))
 #contamination = np.zeros(len(threshold_vals))
@@ -196,6 +204,7 @@ N_det = np.zeros( (len(min_widths),len(threshold_vals)) )
 
 
 for j,th in enumerate(threshold_vals):
+    print(data_structure[j])
     df = pd.DataFrame(data_structure[j],columns=cols)
 
     true_DLA_mask = (df['absorber_CDs'] > DLA_def)
@@ -280,7 +289,7 @@ th_indices = np.digitize(th_vals, threshold_vals)-1
 width_bins = np.arange(0,15,0.2)
 width_mids = QT.midpoints(width_bins)
 
-nHI_bins = np.log10(nHI_vals)
+nHI_bins = np.log10(QT.nHI_vals)
 nHI_mids = QT.midpoints(nHI_bins)
 
 fig_scatter,ax_scatter = plt.subplots()
