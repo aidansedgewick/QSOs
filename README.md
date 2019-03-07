@@ -1,9 +1,9 @@
-## QSOs
+# QSOs
 some scripts
 
 in QSOtools.py, can change "workdir" (approx line 18) to your work dir - else is './'
 
-# Contains
+### Contains
 
 datfiles/ contains: 
 - points for nHI column density distribution, to fit spline 
@@ -22,7 +22,7 @@ QSO.py: uses these to generate fake spectra, and look at threshold. Needs a bett
 
 voigt_profile.py: also in QSOtools.py. Could remove?
 
-# Use:
+### Use:
 
 - Clone
 - run "python3 QSOs.py"
