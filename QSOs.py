@@ -33,7 +33,7 @@ c = 3.0E5  # km/s
 pi = np.pi
 
 v_min = -25000.0 # kms^-1, min recession from QSO.
-v_max = 30.0 #3000.0  # kms^-1, max recession from QSO.
+v_max = 3000.0 #3000.0  # kms^-1, max recession from QSO.
 
 b_min, b_max = 10.0,20.0 # Doppler parameters.
 cold = 20.3     # H I Column density of absorber
@@ -69,7 +69,7 @@ min_col_density = 15.0
 min_feature_width = 5
 # No *single* absorber is likely to be wider than 400 Ang...!?
 MW = 400.0 #max_width
-num_QSOs = 100
+num_QSOs = 10000
 
 threshold_vals = np.arange(-10,200,5) # A list of threshold values
 
@@ -92,103 +92,79 @@ for i in range(num_QSOs):
     wv_em = (1.0+z_QSO)*Lya
 
     
-    ## -----GENERATE A SPECTRUM
-    spec_wv,spec_fl,spec_sig,absorber_CDs,absorber_zs = QT.generate_spectrum(z_QSO)
+    ## ------GENERATE A SPECTRUM
+    spec_wv,spec_fl,spec_sig,absorber_CDs,absorber_zs = QT.generate_spectrum(z_QSO,v_min=v_min,v_max=v_max)
 
-    prox_wv_min = wv_em + v_min
-    prox_wv_max = wv_em + v_max
+    prox_wv_min = wv_em*(1.0+v_min/c)
+    prox_wv_max = wv_em*(1.0+v_max/c)
 
-    proximate_mask = (prox_wv_min-100 < spec_wv) & (spec_wv < prox_wv_max+100)
+    # Keep only the interesting bits?
+    proximate_mask = (prox_wv_min < spec_wv) & (spec_wv < prox_wv_max+100)
 
     prox_wv  = spec_wv[ proximate_mask ]
     prox_fl  = spec_fl[ proximate_mask ]
     prox_sig = spec_sig[ proximate_mask ]
 
-    try:
-        prox_cont = QT.get_continuum(z_QSO,prox_wv,prox_fl,prox_sig,hspc=7,kind='max')
-        # continuum norm falls over when nmax ("Nmidpoints"?) is zero -- happens
-        # for QSOs where only a few wv's are redward of the QSO because of SDSS limit 3800A.
-    except:
-        prox_cont = np.ones(len(prox_wv))
 
+    ## ------NORMALISE IT
+    prox_cont = QT.get_continuum(z_QSO,prox_wv,prox_fl,prox_sig,hspc=10,kind='max')
     norm_fl  = prox_fl/prox_cont
-    norm_sig   = prox_sig/prox_cont
+    norm_sig = prox_sig/prox_cont
 
+
+    ## ------DO THE SCORES
     z_window = (1.0+z_QSO)*restframe_window
     Npix = int(z_window/SDSS_wv_resolution)
 
     score_wv,score_vals = QT.evaluate_scores(prox_wv,norm_fl,norm_sig,Npix)
     score_zs = score_wv/Lya - 1.0
 
+    ## ------EVALUATE FOR VARYING 
     for j,th in enumerate(threshold_vals):
-        # Look at 
-        feature_widths,feature_zs = QT.extract_features(z_QSO,score_wv,score_vals)
+        # Look at the width of the 
+        feature_widths,feature_zs = QT.extract_features(z_QSO,score_wv,score_vals,threshold=th)
         
         # Match the widest feature to the largest column density 
         QSO_matches = QT.match_features(z_QSO,absorber_CDs,absorber_zs, feature_widths,feature_zs)
-    
         data_structure[j].extend(QSO_matches)
 
-
+    QT.write(i+1,num_QSOs)
     
     '''
     ### Some plotting stuff...
-    if len(absorber_CDs[ absorber_CDs > 20.3]) > 0:      
-        gs = plt.GridSpec(4,3)
-        fig=plt.figure()
+    if len(absorber_CDs[ absorber_CDs > 20.3 ]) > 0: # np.max(abs_CDs) > 20.3 doesn't work for len=0.
+        fig,gs=plt.figure(),plt.GridSpec(4,3)
         ax1,ax2,ax3 = plt.subplot(gs[:2,:]),plt.subplot(gs[2:3,:]),plt.subplot(gs[3:,:])
-        ax1.plot(composite_wave,composite_flux,'k',alpha=0.5,label='true')
-        ax1.plot(SDSS_wave,SDSS_flux,'b',label='convolved',alpha=0.5)
-        ax1.plot(prox_wave,prox_flux,'k',drawstyle='steps',label='observed')
-        ax1.plot(prox_wave,prox_cont,'r',label='est. continuum')
-        ax1.plot(composite_wave,HR_composite_xspec.flux,'k',alpha=0.5)
-        ax1.legend()
-        ax1.text(SDSS_min-5.0,6.5,'SDSS limit',rotation=90,color='r',
-                verticalalignment='center',horizontalalignment='center')
-        ax1.set_ylim(-3.0,12.0)
 
-        for wv,CD in zip(absorber_wvs,absorber_CDs):
-            if CD > 17:
-                ax1.plot([wv,wv],[-1.0,0.0],color='g')
-                ax1.text(wv,-2.0,'%.1f'%CD,horizontalalignment='center',verticalalignment='center')
+        ax1.plot(prox_wv,prox_fl,'k',drawstyle='steps')
+        ax1.plot(prox_wv,prox_cont,'k--')
 
-        ax2.plot(prox_wave,norm_flux,'k',drawstyle='steps')
-        ax2.plot(prox_wave,norm_flux/norm_flux,'r',drawstyle='steps')
+        ax2.plot(prox_wv,norm_fl,color='k',drawstyle='steps')
+        ax2.plot(prox_wv,norm_fl/norm_fl,'k--')
 
-        ax3.plot(score_wave,score_vals,'k')
-        #for i,fm in enumerate(feature_masks):
-        #    ax3.plot(score_wave[fm], score_vals[fm],'g')
-        #    ax3.axhline(th,color='g',ls='--')
-        #    f = this_QSO[i]
-        #    ax3.text((f[3]+1)*Lya,th-50,'%.1f'%f[2],horizontalalignment='center',verticalalignment='top')
-
-        ax1.set_xticks([])
-        ax2.set_xticks([])
-
-        for ax in [ax1,ax2,ax3]:
-            ax.set_xlim(wave_min-20,wave_max+20)   
-            ax.axvline(SDSS_min,color='r',ls='--')
-
-        ax1.set_ylabel(r'Flux')
-        ax2.set_ylabel(r'Normed flux')
-        ax3.set_ylabel(r'Score')
-        ax3.set_xlabel(r'Wavelength $(\AA)$')
-
+        ax3.plot(score_wv,score_vals)
+        
+        for q,ax in enumerate([ax1,ax2,ax3]):
+            ax.set_xlim(prox_wv_min,prox_wv_max)
+            if q!=2: ax.set_xticks([])
+            for ab_z,ab_CD in zip(absorber_zs[ absorber_CDs > 20.3 ], absorber_CDs[ absorber_CDs > 20.3 ]):
+                ax.axvline((ab_z+1.0)*Lya,color='g',ls='--')
+                if q==0: ax.set_ylim(-1.5,12),ax.text((ab_z+1.0)*Lya+5.0,11,'%.1f'%ab_CD,horizontalalignment='left',verticalalignment='center')
+                
         fig.subplots_adjust(hspace=0)
         plt.show()
-    '''
+        '''
 
 
 
 if pickle_exists is False:
     t_end = time.time()
-#    print('\n ~%i per second.' %round(num_QSOs/(t_end-t_start),0) )
-
-#    with open(pkl_file_loc, 'wb') as f:
-#        pickle.dump(data_structure,f)
-#else:
-#    with open(pkl_file_loc, 'rb') as f:
-#        data_structure = pickle.load(f)
+    print('\n ~%i per second.' %round(num_QSOs/(t_end-t_start),0) )
+    with open(pkl_file_loc, 'wb') as f:
+        pickle.dump(data_structure,f)
+else:
+    with open(pkl_file_loc, 'rb') as f:
+        data_structure = pickle.load(f)
     
 
 cols = 'z_QSO absorber_CDs absorber_zs feature_widths feature_zs'.split()
@@ -204,8 +180,9 @@ N_det = np.zeros( (len(min_widths),len(threshold_vals)) )
 
 
 for j,th in enumerate(threshold_vals):
-    print(data_structure[j])
     df = pd.DataFrame(data_structure[j],columns=cols)
+
+    print(df['feature_widths'])
 
     true_DLA_mask = (df['absorber_CDs'] > DLA_def)
 

@@ -3,12 +3,14 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 import scipy.integrate as integrate
-from scipy.interpolate import interp1d
+#from scipy.interpolate import interp1d
+from scipy import interpolate
 from scipy.special import wofz
 import astropy.io.fits as fits
 import astropy.units as u
 
 from linetools.spectra.xspectrum1d import XSpectrum1D as xspec
+from scipy.ndimage.filters import gaussian_filter1d
 
 import pickle
 import time
@@ -65,17 +67,17 @@ composite_loc = workdir + 'datfiles/harris15_composite.fits'
 composite = fits.open(composite_loc)[1].data
 
 # Get rid of the zeros...
-composite_wave = composite['WAVE'][ composite['FLUX'] > 0.0 ]
-composite_flux = composite['FLUX'][ composite['FLUX'] > 0.0 ]
+rf_composite_wv = composite['WAVE'][ composite['FLUX'] > 0.0 ]
+rf_composite_fl = composite['FLUX'][ composite['FLUX'] > 0.0 ]
 
 # REBIN the composite to v. high res, so that we can stretch and absorb it...
 high_wave_resolution = 0.05
-high_res_wave = np.arange(composite_wave.min(), composite_wave.max(), high_wave_resolution)
+high_resolution_wv = np.arange(rf_composite_wv.min(), rf_composite_wv.max(), high_wave_resolution)
 
 # Create xspec obj. for rebinning into high res.
-composite_xspec = xspec.from_tuple( (composite_wave*u.Angstrom,composite_flux) )
-HR_composite_xspec = composite_xspec.rebin(high_res_wave*u.Angstrom)
-high_res_flux = HR_composite_xspec.flux.value
+composite_xspec = xspec.from_tuple( (rf_composite_wv*u.Angstrom,rf_composite_fl) )
+HR_composite_xspec = composite_xspec.rebin(high_resolution_wv*u.Angstrom)
+high_resolution_fl = HR_composite_xspec.flux.value
 
 ###------------ LOAD SOME COLUMN DENSITY INFO ---------------###
 
@@ -84,8 +86,8 @@ prochaska_loc = workdir + 'datfiles/prochaska_data.txt'
 nHI_data = pd.read_csv(prochaska_loc,delim_whitespace=True) # Column density points, to fit spline to.
 # print(nHI_data.columns)
 
-linear_fit = interp1d(nHI_data['logN'], nHI_data['logf']) # A linear spline
-cubic_fit  = interp1d(nHI_data['logN'], nHI_data['logf'], kind='cubic') # A cubic spline
+linear_fit = interpolate.interp1d(nHI_data['logN'], nHI_data['logf']) # A linear spline
+cubic_fit  = interpolate.interp1d(nHI_data['logN'], nHI_data['logf'], kind='cubic') # A cubic spline
 
 
 
@@ -223,23 +225,23 @@ def call_CPU(x, y, p):
 
 
 def generate_spectrum(z_QSO,sig1=0.1,sig2=0.1,wv_min=SDSS_min,wv_max=SDSS_max,wv_res=SDSS_resolution,
-                        min_col_density=min_col_density,MW=400.0):
+                        v_min=-9000.0,v_max=+3000.0,min_col_density=min_col_density,MW=400.0):
     '''Generate a fake spectrum. Return the observed wavelength, flux, error, and the absorbers'
     column densities and redshifts.'''
 
     ##------- INITIALISE SOME STUFF.
 
-    v_min = -25000.0 # kms^-1, min recession from QSO.
-    v_max = 30.0 #3000.0  # kms^-1, max recession from QSO.
+    #v_min = -9000.0 # kms^-1, min recession from QSO.
+    #v_max = 30.0 #3000.0  # kms^-1, max recession from QSO.
 
     observed_wv = np.arange(wv_min,wv_max,wv_res)
 
-    composite_wv   = HR_composite_xspec.wavelength.value*(1.0+z_QSO).copy()
-    composite_flux = HR_composite_xspec.flux.value.copy()
+    composite_wv = HR_composite_xspec.wavelength.value.copy()*(1.0+z_QSO)
+    composite_fl = HR_composite_xspec.flux.value.copy()
     
     # Only really care about absorption bluewards of Lya peak...? but NOT bluewards of minimum.
-    absorber_z_min = max(z_QSO + v_min/c*(1.0+z_QSO),wv_min/Lya-1.0 ) 
-    absorber_z_max = max(z_QSO + v_max/c*(1.0+z_QSO),wv_min/Lya-1.0 + 0.01) 
+    absorber_z_min = max(z_QSO + v_min/c*(1.0+z_QSO), wv_min/Lya-1.0 ) 
+    absorber_z_max = max(z_QSO + v_max/c*(1.0+z_QSO), wv_min/Lya-1.0 + 0.01) 
 
     absorber_wv_min = (1.0+absorber_z_min)*Lya
     absorber_wv_max = (1.0+absorber_z_max)*Lya
@@ -256,50 +258,51 @@ def generate_spectrum(z_QSO,sig1=0.1,sig2=0.1,wv_min=SDSS_min,wv_max=SDSS_max,wv
     ##------ DO SOME ABSORPTION.
 
     for j,m in enumerate(m_vals): # Get 'm', and an index 'j'
-            prob = m % 1 # The 'decimal' of 'm' == m - int(m)
-     		#0<rand<1 to compare to decimal part of 'm'. eg 4.267: ~75% of time, m=4, else m=5. Think about it...   
-            rand_val = np.random.random(1)[0]        
-            absorber_count = int(m) + int( (rand_val <= prob) ) # Returns 'm' if RV<=prob TRUE, else 'm+1' 
+        prob = m % 1 # The 'decimal' of 'm' == m - int(m)
+ 		#0<rand<1 to compare to decimal part of 'm'. eg 4.267: ~75% of time, m=4, else m=5. Think about it...   
+        rand_val = np.random.random(1)[0]        
+        absorber_count = int(m) + int( (rand_val <= prob) ) # Returns 'm' if RV<=prob TRUE, else 'm+1' 
 
-            col_density = np.log10(nHI_mids[j])
-            z_vals = np.random.uniform(absorber_z_min, absorber_z_max, absorber_count) # Redshift values within DX
-            b_vals = np.random.uniform(b_min, b_max, absorber_count) # Doppler vals     
+        col_density = np.log10(nHI_mids[j])
+        z_vals = np.random.uniform(absorber_z_min, absorber_z_max, absorber_count) # Redshift values within DX
+        b_vals = np.random.uniform(b_min, b_max, absorber_count) # Doppler vals  
 
-            #Store the values if above some interesting minimum.
-            if col_density > min_col_density:
-                absorber_CDs.extend( [col_density]*absorber_count )
-                absorber_zs.extend(z_vals)
-                ## absorber_bs.extend(b_vals)   
+        #Store the values if above some interesting minimum.
+        if col_density > min_col_density:
+            absorber_CDs.extend( [col_density]*absorber_count )
+            absorber_zs.extend(z_vals)
+            ## absorber_bs.extend(b_vals)   
 
-            # Which "wavelength pixels" do the absorbers correspond to?
-            wv_pix   = np.digitize( (1.0+z_vals)*Lya, composite_wv)-1
-            min_pix  = np.digitize( (1.0+z_vals)*Lya-MW/2, composite_wv)-1
-            max_pix  = np.digitize( (1.0+z_vals)*Lya+MW/2, composite_wv)-1
+        # Which "wavelength pixels" do the absorbers correspond to?
+        wv_pix   = np.digitize( (1.0+z_vals)*Lya, composite_wv)-1
+        min_pix  = np.digitize( (1.0+z_vals)*Lya-MW/2, composite_wv)-1
+        max_pix  = np.digitize( (1.0+z_vals)*Lya+MW/2, composite_wv)-1
 
-            for k,(z_k,b_k) in enumerate(zip(z_vals,b_vals)):
-                parameters = [col_density, z_k, b_k, Lya, fval, gamma]
+        for k,(z_k,b_k) in enumerate(zip(z_vals,b_vals)):
+            parameters = [col_density, z_k, b_k, Lya, fval, gamma]
 
-                # Be smart about which parts of the spectrum we want to calculate absorption for...
-                # Define a slice object to look only at the interesting parts.
-                slicer = slice(max(0,min_pix[k]), min(max_pix[k],len(composite_wave)-1))
+            # Be smart about which parts of the spectrum we want to calculate absorption for...
+            # Define a slice object to look only at the interesting parts.
+            slicer = slice(max(0,min_pix[k]), min(max_pix[k],len(composite_wv)-1))
 
-                absorption = voigt(composite_wave[slicer],parameters)
-                composite_flux[slicer] = composite_flux[slicer]*absorption
+            absorption = voigt(composite_wv[slicer], parameters) # 
+            composite_fl[slicer] = composite_fl[slicer]*absorption
+
 
 
     ##------ MAKE IT LOOK LIKE A REAL SPECTRUM.
 
     # Convolve with an instrument profile.
-    convolved_flux = call_CPU(composite_wave,composite_flux,[wv_res])
+    convolved_fl = call_CPU(composite_wv,composite_fl,[wv_res])
     
     # Create a xspec obj. to rebin onto SDSS wavelengths.
-    absorbed_composite_xspec = xspec.from_tuple( (composite_wv*u.Angstrom,convolved_flux) )
+    absorbed_composite_xspec = xspec.from_tuple( (composite_wv*u.Angstrom,convolved_fl) )
     convolved_xspec = absorbed_composite_xspec.rebin(observed_wv*u.Angstrom)
 
-    convolved_flux = convolved_xspec.flux.copy()
+    convolved_fl = convolved_xspec.flux.copy()
 
-    sigma = sig1 + sig2*convolved_flux
-    observed_flux = np.random.normal(convolved_flux,sigma)
+    sigma = sig1 + sig2*convolved_fl
+    observed_flux = np.random.normal(convolved_fl,sigma)
 
     absorber_CDs = np.array(absorber_CDs) # > 
     absorber_zs  = np.array(absorber_zs)  # > Arrays are nicer to deal with...
@@ -324,6 +327,7 @@ def get_continuum(zem,wave,flux,flue,hspc=None,kind='smooth'):
     flue = flue[ww]
     #ivar = ivar[ww]
     mask = mask[ww]
+
 
     if hspc is None:
         hspc = 10
@@ -405,7 +409,7 @@ def consecutive(data, stepsize=1):
         return np.split(data, np.where(np.diff(data) != stepsize)[0]+1)
 
 
-def extract_features(z_QSO,scores_wv,score_vals,threshold=0.0,min_width=3.5,scaled=True):
+def extract_features(z_QSO,scores_wv,score_vals,threshold,min_width=3.5,scaled=True):
     '''Find consecutive pixels with scores above the threshold.
         Returns their widths, estimated redshifts. '''
 
@@ -414,7 +418,7 @@ def extract_features(z_QSO,scores_wv,score_vals,threshold=0.0,min_width=3.5,scal
     
     feature_masks = [fm for fm in feature_masks if len(fm) >= min_width ]
 
-    score_zs = (1.0+z_QSO)*scores_wv
+    score_zs = scores_wv/Lya - 1.0
     
     # SCALE the widths to redshift zero...
     feature_widths = np.array([ len(fm) for fm in feature_masks ])
