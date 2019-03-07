@@ -182,28 +182,30 @@ N_det = np.zeros( (len(min_widths),len(threshold_vals)) )
 for j,th in enumerate(threshold_vals):
     df = pd.DataFrame(data_structure[j],columns=cols)
 
-    print(df['feature_widths'])
-
     true_DLA_mask = (df['absorber_CDs'] > DLA_def)
 
     N_true = len( df[ true_DLA_mask ] )
 
     for k,w in enumerate(min_widths):
-        
+        # For detection above this minumum feature width, 
+        # how many true positives, false positives, total positives?
+
         detected_mask = (df['feature_widths'] > w )#*(1.0+df['z_QSO'])
         
 
         N_pos[k,j] = len( df[  true_DLA_mask & detected_mask ]) 
         N_neg[k,j] = len( df[ ~true_DLA_mask & detected_mask ])
-        N_det[k,j] = len( df[ detected_mask ] )
+        N_det[k,j] = len( df[ detected_mask ] ) # = N_pos+N_neg??
 
 
 # Interested in...
 recall  = N_pos/N_true
 contamination = N_neg/(N_neg + N_pos)
+
+# An array to save the values of area under the ROC curve.
 AUC = np.zeros(len(min_widths))
 
-
+# Make some axes to do the plots...
 fig1 = plt.figure(figsize=(8,5))
 ax1a = fig1.add_subplot(211)
 ax1b = fig1.add_subplot(212)
@@ -214,21 +216,21 @@ fig2,ax2 = plt.subplots(figsize=(8,5))
 for k,w in enumerate(min_widths):
     #plt.plot(threshold_vals,completeness[k,:],color='C%i'%k)
     
-    Rk = recall[k,:]
+    # Recall & contam for min_width[k], the slice is for 'neatness'
+    Rk = recall[k,:] 
     Ck = contamination[k,:]
-
 
     ax1a.plot(threshold_vals,Rk*(1.0-Ck),color='C%i'%k,label=w)
     ax1b.plot(threshold_vals,1.0-Ck,color='C%i'%k)
     ax1b.plot(threshold_vals,Rk,ls='--',color='C%i'%k)
     
-    if k==0:
+    if k==0: # Only want one solid & one dash line in the legend.
         ax1b.plot((0,0),(0,0),'k--',label='Contamination')
         ax1b.plot((0,0),(0,0),'k',label='Recall')
     ax2.plot(Ck,Rk,color='C%i'%k)
     
-    Ck_mask = np.isfinite(Ck)
-    Rk_mask = np.isfinite(Rk)
+    Ck_mask = np.isfinite(Ck) # Can't do the AUC integration --
+    Rk_mask = np.isfinite(Rk) # -- if we have NaN values!
 
     try:
         AUC[k] = integrate.trapz(Rk[ Ck_mask & Rk_mask ][::-1], x=Ck[ Ck_mask & Rk_mask ][::-1])
@@ -245,13 +247,9 @@ ax1b.set_xlabel(r'Threshold score',fontsize=18)
 ax2.set_xlabel(r'Contamination $C$',fontsize=18)
 ax2.set_ylabel(r'Recall $R$',fontsize=18)
 
-
-print(min_widths,AUC)
 ax2_sub = fig2.add_axes([0.45,0.18,0.43,0.4])#,transform=ax2.transAxes)
 ax2_sub.plot(min_widths,AUC,'k')
 ax2_sub.set_ylabel(r'AUC',fontsize=18)
-
-
 
 
 # Choose a few example thresholds to look at...
@@ -261,7 +259,7 @@ th_indices = np.digitize(th_vals, threshold_vals)-1
 
 
 
-### DO SOME EXTRA PLOTS...
+### Some more plots...
 
 width_bins = np.arange(0,15,0.2)
 width_mids = QT.midpoints(width_bins)
@@ -277,6 +275,7 @@ fig_pcolor,ax_pcolor = plt.subplots()
 ax_pcolor.set_xlabel(r'$\log_{10}\left(n_{\mathrm{HI}}\right)$ Column density')
 ax_pcolor.set_ylabel(r'$\frac{\mathrm{Feature\;width\;[pix]}}{1+z_{QSO}}$',fontsize=20)
 
+# Contour plot is a failed experiment.
 fig_contour,ax_contour = plt.subplots()
 ax_contour.set_xlabel(r'$\log_{10}\left(n_{\mathrm{HI}}\right)$ Column density')
 ax_contour.set_ylabel(r'$\frac{\mathrm{Feature\;width\;[pix]}}{1+z_{QSO}}$',fontsize=20)
@@ -316,7 +315,6 @@ for i,th in enumerate(th_vals):
 
 
     ax_hist.hist(df['absorber_zs']-df['feature_zs'],bins=np.linspace(-0.025,0.025,50),color='C%i'%i,histtype='step',density=True)
-
 
     ax_zerr1.scatter(df['absorber_zs']-df['z_QSO'],df['feature_zs']-df['absorber_zs'],s=2)
     
