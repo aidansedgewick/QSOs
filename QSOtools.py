@@ -12,6 +12,7 @@ import astropy.units as u
 from linetools.spectra.xspectrum1d import XSpectrum1D as xspec
 from scipy.ndimage.filters import gaussian_filter1d
 
+import warnings
 import pickle
 import time
 import sys
@@ -121,6 +122,7 @@ SDSS_data = pd.read_csv(SDSS_QSOs_loc)
 
 
 def write(*args):
+    '''Effectively 'print' with carriage return '''
     string = '> '+ ' '.join('%s' %arg for arg in args)
     sys.stdout.write('\r')     # Return carriage BEFORE the string
     sys.stdout.flush()         # Does this fix 'blinking'?
@@ -129,11 +131,13 @@ def write(*args):
     return None
 
 def midpoints(arr):
+    ''' Calculate the midpoints of an array '''
     return 0.5*(arr[1:] + arr[:-1])
 
 
 def calc_DX(z_max, z_min, z_points=1000, om_l=0.7, om_m=0.3):
-    '''RUDIE13  ApJ 769:146   - the formula for calculating m, DX.'''
+    '''RUDIE13  ApJ 769:146   - the formula for calculating m, DX.
+        This is the 'pathlength?' '''
     z_vals = np.linspace(z_max, z_min, z_points)
     zp1 = z_vals + 1.0
     y_vals = zp1*zp1/np.sqrt(om_l + om_m*zp1**3)
@@ -224,10 +228,16 @@ def call_CPU(x, y, p):
     else: return y
 
 
-def generate_spectrum(z_QSO,sig1=0.1,sig2=0.1,wv_min=SDSS_min,wv_max=SDSS_max,wv_res=SDSS_resolution,
+def generate_spectrum(z_QSO,sig1=0.05,sig2=0.05,wv_min=SDSS_min,wv_max=SDSS_max,wv_res=SDSS_resolution,
                         v_min=-9000.0,v_max=+3000.0,min_col_density=min_col_density,MW=400.0):
-    '''Generate a fake spectrum. Return the observed wavelength, flux, error, and the absorbers'
-    column densities and redshifts.'''
+    '''Generate a fake spectrum. Requires z_QSO (Lya emission redshift). 
+    Must return the observed wavelength, flux, error, and the absorbers' column densities and redshifts.
+    
+    Optional: sig1 & sig2 (noise paramters), wv_min & wv_max (limits of returned wv array),
+    wv_res (spectral res of returned wv arr), v_min & v_max (min/max absorber recession vel from QSO in km/s), 
+    min_col_density (the lowest col density to return), MW (the maximum expected width of any single absorber).
+    All wv params in Angstroms.
+    '''
 
     ##------- INITIALISE SOME STUFF.
 
@@ -319,7 +329,10 @@ def generate_spectrum(z_QSO,sig1=0.1,sig2=0.1,wv_min=SDSS_min,wv_max=SDSS_max,wv
 
 def get_continuum(zem,wave,flux,flue,hspc=None,kind='smooth'):
     ''' From RJC envolopy.py
-    Falls over for small'''
+    
+    Give z_em, wavelength, flux, flux_error.
+    also, 'kind' as one of smooth, linear, max (default=smooth)
+    '''
     mask = np.zeros(wave.size)
     ww = np.where(wave < 100.0*1215.6701*(1.0+zem))
     wave = wave[ww]
@@ -365,24 +378,33 @@ def get_continuum(zem,wave,flux,flue,hspc=None,kind='smooth'):
 
     if kind == 'smooth':
         return contsm
-    elif kind == 'lin':
+    elif kind == 'linear':
         return cont
     elif kind == 'max':
         return np.maximum(cont,contsm)
-
+    else:
+        warn_msg = '''\033[33m \n Choose 'kind' from: smooth, linear, max. Using default: smooth.\033[0m'''
+        warnings.warn(warn_msg)
+        
 
 
 def evaluate_Q(fl,sig):
     '''See notes.
-    **NORMALIZED** flux. Write likelhood of draw from zero.
-    div. by likelihood of draw from continuum (ie,f=1).'''
+    Use **NORMALIZED** flux. Derive with: likelhood of Npix draw from zero (f=0),
+    divided by Npix. likelihood of draw from continuum (ie,f=1), take logs.'''
     return (1-2*fl)/(2*sig*sig)
 
 
 
 def evaluate_scores(wv,fl,sig,Npix):
-    '''what is the fastest/best to do this...?
-    Unsure.'''
+    '''See notes.
+    Use **NORMALIZED** flux. Derive with: likelhood of Npix draw from zero (f=0),
+    divided by Npix. likelihood of draw from continuum (ie,f=1), take logs.
+
+    what is the fastest/best to do this...? Surely a less ugly way than loops. Unsure.'''
+
+    Npix = int(Npix)
+
     Q = evaluate_Q(fl,sig)    
 
     score_wave,score_vals = np.zeros(len(Q)),np.zeros(len(Q))

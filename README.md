@@ -1,7 +1,7 @@
 # QSOs
 some scripts
 
-in QSOtools.py, can change "workdir" (approx line 18) to your work dir - else is './'
+in QSOtools.py, can change "workdir" (approx line 18) to your work dir - else default path is './'
 
 ## Contains:
 
@@ -28,7 +28,7 @@ voigt_profile.py: also in QSOtools.py. Could remove?
 - can edit the number of QSOs in QSOs.py, approx line 72. (default 10000, around 10 mins runtime)
 - run "python3 QSOs.py"
 - saves a python pkl file 'data.pkl', produces some plots.
-- if data.pkl exists (ie from previous run), QSOs.py just reads this and makes the plots.
+- if data.pkl exists (ie from previous run), QSOs.py just reads this and makes the plots. (Can delete ok.)
 
 
 

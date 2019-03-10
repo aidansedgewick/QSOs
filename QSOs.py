@@ -106,8 +106,8 @@ for i in range(num_QSOs):
     prox_sig = spec_sig[ proximate_mask ]
 
 
-    ## ------NORMALISE IT
-    prox_cont = QT.get_continuum(z_QSO,prox_wv,prox_fl,prox_sig,hspc=10,kind='max')
+    ## ------NORMALISE SPEC
+    prox_cont = QT.get_continuum(z_QSO,prox_wv,prox_fl,prox_sig,hspc=10,kind='smooth')
     norm_fl  = prox_fl/prox_cont
     norm_sig = prox_sig/prox_cont
 
@@ -183,8 +183,8 @@ for j,th in enumerate(threshold_vals):
     df = pd.DataFrame(data_structure[j],columns=cols)
 
     true_DLA_mask = (df['absorber_CDs'] > DLA_def)
-
-    N_true = len( df[ true_DLA_mask ] )
+    N_true = float(len( df[ true_DLA_mask ] )) # This should be the same every loop...!
+    print(N_true)
 
     for k,w in enumerate(min_widths):
         # For detection above this minumum feature width, 
@@ -193,9 +193,9 @@ for j,th in enumerate(threshold_vals):
         detected_mask = (df['feature_widths'] > w )#*(1.0+df['z_QSO'])
         
 
-        N_pos[k,j] = len( df[  true_DLA_mask & detected_mask ]) 
-        N_neg[k,j] = len( df[ ~true_DLA_mask & detected_mask ])
-        N_det[k,j] = len( df[ detected_mask ] ) # = N_pos+N_neg??
+        N_pos[k,j] = float( len(df[  true_DLA_mask & detected_mask ]) )
+        N_neg[k,j] = float( len(df[ ~true_DLA_mask & detected_mask ]) )
+        N_det[k,j] = float( len(df[                  detected_mask ]) ) # = N_pos+N_neg??
 
 
 # Interested in...
