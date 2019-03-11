@@ -119,7 +119,7 @@ for i in range(num_QSOs):
     score_wv,score_vals = QT.evaluate_scores(prox_wv,norm_fl,norm_sig,Npix)
     score_zs = score_wv/Lya - 1.0
 
-    ## ------EVALUATE FOR VARYING 
+    ## ------EVALUATE FOR VARYING
     for j,th in enumerate(threshold_vals):
         # Look at the width of the 
         feature_widths,feature_zs = QT.extract_features(z_QSO,score_wv,score_vals,threshold=th)
@@ -130,31 +130,7 @@ for i in range(num_QSOs):
 
     QT.write(i+1,num_QSOs)
     
-    '''
-    ### Some plotting stuff...
-    if len(absorber_CDs[ absorber_CDs > 20.3 ]) > 0: # np.max(abs_CDs) > 20.3 doesn't work for len=0.
-        fig,gs=plt.figure(),plt.GridSpec(4,3)
-        ax1,ax2,ax3 = plt.subplot(gs[:2,:]),plt.subplot(gs[2:3,:]),plt.subplot(gs[3:,:])
-
-        ax1.plot(prox_wv,prox_fl,'k',drawstyle='steps')
-        ax1.plot(prox_wv,prox_cont,'k--')
-
-        ax2.plot(prox_wv,norm_fl,color='k',drawstyle='steps')
-        ax2.plot(prox_wv,norm_fl/norm_fl,'k--')
-
-        ax3.plot(score_wv,score_vals)
-        
-        for q,ax in enumerate([ax1,ax2,ax3]):
-            ax.set_xlim(prox_wv_min,prox_wv_max)
-            if q!=2: ax.set_xticks([])
-            for ab_z,ab_CD in zip(absorber_zs[ absorber_CDs > 20.3 ], absorber_CDs[ absorber_CDs > 20.3 ]):
-                ax.axvline((ab_z+1.0)*Lya,color='g',ls='--')
-                if q==0: ax.set_ylim(-1.5,12),ax.text((ab_z+1.0)*Lya+5.0,11,'%.1f'%ab_CD,horizontalalignment='left',verticalalignment='center')
-                
-        fig.subplots_adjust(hspace=0)
-        plt.show()
-        '''
-
+### All QSOs generated!
 
 
 if pickle_exists is False:

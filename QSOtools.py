@@ -401,7 +401,7 @@ def evaluate_scores(wv,fl,sig,Npix):
     Use **NORMALIZED** flux. Derive with: likelhood of Npix draw from zero (f=0),
     divided by Npix. likelihood of draw from continuum (ie,f=1), take logs.
 
-    what is the fastest/best to do this...? Surely a less ugly way than loops. Unsure.'''
+    what is the fastest/best to do this...? Unsure. Surely a less ugly way than loops.'''
 
     Npix = int(Npix)
 
