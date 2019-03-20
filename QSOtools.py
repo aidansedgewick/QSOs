@@ -190,7 +190,7 @@ def call_CPU(x, y, p):
         dwav = 0.5*(x[2:]-x[:-2])
         dwav = np.append(np.append(dwav[0],dwav), dwav[-1])
         if np.size(sigd) == 1:
-            df=int(np.min([np.int(np.ceil(fsigd/dwav).max()), ysize/2 - 1]))
+            df=int(np.min([np.int(np.ceil(fsigd/dwav).max()), ysize//2 - 1]))
                 ### MODIFIED FROM ORIGINAL!! extra 'int'
             yval = np.zeros(2*df+1)
             yval[df:2*df+1] = (x[df:2*df+1] - x[df])/sigd
@@ -205,7 +205,7 @@ def call_CPU(x, y, p):
             return ret[df:df+ysize]
         elif np.size(sigd) == szflx:
             yb = y.copy()
-            df=np.min([np.int(np.ceil(fsigd/dwav).max()), ysize/2 - 1])
+            df=np.min([np.int(np.ceil(fsigd/dwav).max()), ysize//2 - 1])
                 ### MODIFIED FROM ORIGINAL!!! extra 'int'
             for i in range(szflx):
                 if sigd[i] == 0.0:
