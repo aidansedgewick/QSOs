@@ -21,5 +21,4 @@ for qq in range(nspec):
                                            groups=['SDSS_DR7'], tol=1.0*u.arcsec, verbose=False)
     plt.plot(specl.wavelength, specl.flux, 'k-', drawstyle='steps')
     plt.plot(final_spec[qq].wavelength, final_spec[qq].flux, 'r-', drawstyle='steps')
-
 plt.show()
