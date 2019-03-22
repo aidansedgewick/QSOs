@@ -12,13 +12,15 @@ slines, sdict = tset.grab_sightlines(sdss, flg_bal=0)
 
 # Run
 nspec = 5
-final_spec, full_dict = tset.make_set(nspec, slines, outroot=None, slls=False)
+seed = 1234
+final_spec, full_dict = tset.make_set(nspec, slines, outroot=None, seed=seed, slls=False)
 
 for qq in range(nspec):
-    plt.subplot(1, nspec, qq+1)
+    plt.subplot(nspec, 1, qq+1)
     isl = full_dict[qq]['sl']
     specl, meta = igmsp.spectra_from_coord((slines['RA'][isl], slines['DEC'][isl]),
                                            groups=['SDSS_DR7'], tol=1.0*u.arcsec, verbose=False)
     plt.plot(specl.wavelength, specl.flux, 'k-', drawstyle='steps')
     plt.plot(final_spec[qq].wavelength, final_spec[qq].flux, 'r-', drawstyle='steps')
+
 plt.show()
