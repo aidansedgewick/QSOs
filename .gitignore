@@ -1,3 +1,4 @@
 *.pkl
 *.png
 CNN.ipynb
+.ipynb_checkpoints/
