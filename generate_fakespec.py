@@ -5,6 +5,7 @@ from matplotlib import pyplot as plt
 import astropy.units as u
 import numpy as np
 
+
 def generate_fakespec(nspec, seed=1234):
     """ Generate nspec fake spectra.
     The seed needs to be changed if you want a different
