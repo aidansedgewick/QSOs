@@ -326,8 +326,20 @@ def generate_spectrum(z_QSO,sig1=0.05,sig2=0.05,wv_min=SDSS_min,wv_max=SDSS_max,
 
     return observed_wv,observed_flux,sigma,absorber_CDs,absorber_zs#,absorber_bs
 
+def moving_ave(arr,Npix=10):
+    result = np.zeros(len(arr))
+    for i,v in enumerate(arr):
+        result[i] = np.average(arr[i-Npix//2:i+Npix//2])
+    return result
 
-def get_continuum(zem,wave,flux,flue,hspc=None,kind='smooth'):
+def moving_sig(arr,Npix=10):
+    result = np.zeros(len(arr))
+    for i,v in enumerate(arr):
+        result[i] = np.std(arr[i-Npix//2:i+Npix//2])
+    return result
+
+def get_continuum(zem,wave,flux,flue,hspc=None,kind='smooth',
+                        thresh=1.0,return_knots=False):
     ''' From RJC envolopy.py
     
     Give z_em, wavelength, flux, flux_error.
@@ -353,7 +365,13 @@ def get_continuum(zem,wave,flux,flue,hspc=None,kind='smooth'):
     mask[:hspc] = 1
     mask[-hspc:] = 1
     # Mask all significantly zero points
-    mask[np.where(flux<3.0*flue)] = 1
+    mask[np.where(flux<thresh*flue)] = 1
+
+    # Mask significant noise
+
+    mask[np.where(flux>moving_ave(flux)+moving_sig(flux))] = 1
+
+
     # Now solves for all of the midpoints
     for ii in range(2, nmax):
         ww = np.where(mask==0)[0]
@@ -365,8 +383,8 @@ def get_continuum(zem,wave,flux,flue,hspc=None,kind='smooth'):
         xarr[ii] = wave[ww[amax]]
         yarr[ii] = flux[ww[amax]]
         # Set the bounds
-        xmn = ww[amax]-hspc
-        xmx = ww[amax]+hspc+1
+        xmn = ww[amax]-2*hspc
+        xmx = ww[amax]+2*hspc+1
         if xmn < 0: xmn = 0
         if xmx > wave.size: xmx = wave.size
         mask[xmn:xmx] = 1
@@ -376,15 +394,22 @@ def get_continuum(zem,wave,flux,flue,hspc=None,kind='smooth'):
     cont = f(wave)
     contsm = gaussian_filter1d(cont, 2*hspc)
 
+
+
     if kind == 'smooth':
-        return contsm
+        cont_result = contsm
     elif kind == 'linear':
-        return cont
+        cont_result = cont
     elif kind == 'max':
-        return np.maximum(cont,contsm)
+        cont_result = np.maximum(cont,contsm)
     else:
         warn_msg = '''\033[33m \n Choose 'kind' from: smooth, linear, max. Using default: smooth.\033[0m'''
         warnings.warn(warn_msg)
+
+    if return_knots:
+        return cont_result,xarr[asrt],yarr[asrt]
+    else:
+        return cont_result
         
 
 
