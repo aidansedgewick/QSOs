@@ -383,8 +383,8 @@ def get_continuum(zem,wave,flux,flue,hspc=None,kind='smooth',
         xarr[ii] = wave[ww[amax]]
         yarr[ii] = flux[ww[amax]]
         # Set the bounds
-        xmn = ww[amax]-2*hspc
-        xmx = ww[amax]+2*hspc+1
+        xmn = ww[amax]-hspc
+        xmx = ww[amax]+hspc+1
         if xmn < 0: xmn = 0
         if xmx > wave.size: xmx = wave.size
         mask[xmn:xmx] = 1
