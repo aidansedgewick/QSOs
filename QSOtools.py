@@ -488,7 +488,7 @@ def get_continuum_alt2(zem, wave, flux, idxnum=4):
     fxsm = flux[idxarr]
     asrt = np.argsort(wvsm)
 
-    cont = gaussian_filter1d(fxsm[asrt], 40)
+    cont = gaussian_filter1d(fxsm[asrt], 60)
     _, idn, _ = np.intersect1d(np.array(idxarr), np.arange(flux.size), return_indices=True)
     f = interpolate.interp1d(wvsm[asrt][idn], cont[idn], kind='linear', bounds_error=False)
     return f(wave)

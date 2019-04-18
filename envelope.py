@@ -15,8 +15,8 @@ flue = 1.0/np.sqrt(ivar)
 mask = np.zeros(wave.size)
 zem = 2.8867#2.85636
 
-wave, flux = np.loadtxt("test_spec.dat", unpack=True)
-zem = 3.6384499073028564
+#wave, flux = np.loadtxt("test_spec.dat", unpack=True)
+#zem = 3.6384499073028564
 
 idxnum = 4
 #ww = np.where(wave < 1215.6701 * (1.0 + zem))
@@ -44,7 +44,7 @@ wvsm = wave[idxarr]
 fxsm = flux[idxarr]
 asrt = np.argsort(wvsm)
 
-cont = gaussian_filter1d(fxsm[asrt], 40)
+cont = gaussian_filter1d(fxsm[asrt], 60)
 _, idn, _ = np.intersect1d(np.array(idxarr), np.arange(flux.size), return_indices=True)
 f = interpolate.interp1d(wvsm[asrt][idn], cont[idn], kind='linear', bounds_error=False)
 cont = f(wave)
