@@ -467,15 +467,19 @@ def get_continuum_alt(zem, wave, flux, flue, hspc=None, kind='smooth'):
 
 
 def get_continuum_alt2(zem, wave, flux, idxnum=4):
-    ww = np.where(wave < 1215.6701 * (1.0 + zem))
     wsky = np.where(((wave > 5570) & (wave < 5580)) |
                     ((wave > 6295) & (wave < 6305)) |
                     ((wave > 6360) & (wave < 6370)))
 
     wfl = np.round(idxnum * flux / np.median(flux))
-    wfl[ww] -= 1
+    # Filter the low flux data
+    minflux = minimum_filter(flux, size=20)
+    maxflux = maximum_filter(flux, size=20) / (0.2 + wfl / idxnum)
+    frac = 0.3
+    fluxcut = frac * minflux + (1 - frac) * maxflux
+    wfl[np.where((flux < fluxcut) & (wave < 1215.6701 * (1.0 + zem)))] = 0  # Mask low flux forest
     wfl[wsky] = 0  # Mask the sky lines
-    wfl = np.clip(wfl, 0.0, idxnum).astype(np.int)
+    wfl = np.clip(wfl, 0.0, 2*idxnum).astype(np.int)
     idxarr = []
     for ii in range(flux.size):
         idxarr += wfl[ii] * [ii]

@@ -48,6 +48,7 @@ def plot_continuum_fits(all_spec, full_dict):
         #plt.subplot(all_spec.nspec, 1, qq+1)
         isl = full_dict[qq]['sl']
         zem = slines['ZEM'][isl]
+        print("zem = ", zem)
         cont = get_continuum_alt2(zem, all_spec[qq].wavelength.value, all_spec[qq].flux.value)
         plt.subplot(211)
         plt.plot(all_spec[qq].wavelength, all_spec[qq].flux, 'k-', drawstyle='steps')
@@ -57,6 +58,7 @@ def plot_continuum_fits(all_spec, full_dict):
         plt.plot(all_spec[qq].wavelength, all_spec[qq].flux/cont, 'k-', drawstyle='steps')
         plt.xlim(all_spec.wvmin.value, all_spec.wvmax.value)
         plt.show()
+        #pdb.set_trace()
 
 
 if __name__ == "__main__":
