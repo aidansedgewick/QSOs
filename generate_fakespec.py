@@ -8,7 +8,7 @@ import pdb
 from QSOtools import get_continuum, get_continuum_alt, get_continuum_alt2
 
 
-def generate_fakespec(nspec, seed=1234):
+def generate_fakespec(nspec, seed=1234, mix=False):
     """ Generate nspec fake spectra.
     The seed needs to be changed if you want a different
     set of spectra. In other words, use the same seed to
@@ -19,7 +19,7 @@ def generate_fakespec(nspec, seed=1234):
     slines, sdict = tset.grab_sightlines(sdss, flg_bal=0)
 
     # Run
-    final_spec, full_dict = tset.make_set(nspec, slines, outroot=None, seed=seed, slls=False)
+    final_spec, full_dict = tset.make_set(nspec, slines, outroot=None, seed=seed, mix=mix)
     return final_spec, full_dict
 
 
