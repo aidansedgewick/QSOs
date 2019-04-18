@@ -5,7 +5,7 @@ from matplotlib import pyplot as plt
 import astropy.units as u
 import numpy as np
 import pdb
-from QSOtools import get_continuum, get_continuum_alt
+from QSOtools import get_continuum, get_continuum_alt, get_continuum_alt2
 
 
 def generate_fakespec(nspec, seed=1234):
@@ -45,17 +45,21 @@ def plot_continuum_fits(all_spec, full_dict):
     sdss = DLASurvey.load_SDSS_DR5(sample='all')
     slines, sdict = tset.grab_sightlines(sdss, flg_bal=0)
     for qq in range(all_spec.nspec):
-        plt.subplot(all_spec.nspec, 1, qq+1)
+        #plt.subplot(all_spec.nspec, 1, qq+1)
         isl = full_dict[qq]['sl']
         zem = slines['ZEM'][isl]
-        cont = get_continuum_alt(zem, all_spec[qq].wavelength.value, all_spec[qq].flux.value, all_spec[qq].sig.value, kind='smooth')
+        cont = get_continuum_alt2(zem, all_spec[qq].wavelength.value, all_spec[qq].flux.value)
+        plt.subplot(211)
         plt.plot(all_spec[qq].wavelength, all_spec[qq].flux, 'k-', drawstyle='steps')
         plt.plot(all_spec[qq].wavelength, cont, 'r-', drawstyle='steps')
         plt.xlim(all_spec.wvmin.value, all_spec.wvmax.value)
-    plt.show()
+        plt.subplot(212)
+        plt.plot(all_spec[qq].wavelength, all_spec[qq].flux/cont, 'k-', drawstyle='steps')
+        plt.xlim(all_spec.wvmin.value, all_spec.wvmax.value)
+        plt.show()
 
 
 if __name__ == "__main__":
-    all_spec, full_dict = generate_fakespec(3)
+    all_spec, full_dict = generate_fakespec(20)
     #plot_spectra(all_spec, full_dict)
     plot_continuum_fits(all_spec, full_dict)

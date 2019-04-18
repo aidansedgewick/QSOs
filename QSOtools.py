@@ -405,7 +405,7 @@ def get_continuum_alt(zem, wave, flux, flue, hspc=None, kind='smooth'):
     mask = mask[ww]
 
     if hspc is None:
-        hspc = 10
+        hspc = 15
     nmax = wave.size // (2 * hspc)
 
     # Setup the arrays and their endpoints
@@ -421,13 +421,13 @@ def get_continuum_alt(zem, wave, flux, flue, hspc=None, kind='smooth'):
     flux_fltr = medfilt(flux, kernel_size=kernsz)
     flue_fltr = 1.4826 * np.abs(medfilt(flux - flux_fltr, kernel_size=kernsz))
     # Mask all significantly zero points
-    mask[np.where(flux_fltr < 3.0 * flue_fltr)] = 1
+    mask[np.where(flux_fltr < flux_fltr - 5.0 * flue_fltr)] = 1
     mask[np.where(flux > flux_fltr + 5.0 * flue_fltr)] = 1
     # Mask all points around Lya emission of the QSO
     mask[np.where((wave > 1190.0 * (1.0 + zem)) & (wave < 1240.0 * (1.0 + zem)))] = 1
     # Perform a min/max filter
-    minflux = minimum_filter(flux, size=50)
-    maxflux = maximum_filter(flux, size=50)
+    minflux = minimum_filter(flux, size=hspc)
+    maxflux = maximum_filter(flux, size=hspc)
     frac = 0.7
     meanval = frac*minflux + (1-frac)*maxflux
     mask[np.where(flux < meanval)] = 1
@@ -440,7 +440,7 @@ def get_continuum_alt(zem, wave, flux, flue, hspc=None, kind='smooth'):
             break
         amax = np.argmax(flux[ww])
         xarr[ii] = wave[ww[amax]]
-        yarr[ii] = flux[ww[amax]]
+        yarr[ii] = np.median(flux[ww[amax]-1:ww[amax]+2])
         # Set the bounds
         xmn = ww[amax] - hspc
         xmx = ww[amax] + hspc + 1
@@ -464,6 +464,30 @@ def get_continuum_alt(zem, wave, flux, flue, hspc=None, kind='smooth'):
     else:
         warn_msg = '''\033[33m \n Choose 'kind' from: smooth, linear, max. Using default: smooth.\033[0m'''
         warnings.warn(warn_msg)
+
+
+def get_continuum_alt2(zem, wave, flux, idxnum=4):
+    ww = np.where(wave < 1215.6701 * (1.0 + zem))
+    wsky = np.where(((wave > 5570) & (wave < 5580)) |
+                    ((wave > 6295) & (wave < 6305)) |
+                    ((wave > 6360) & (wave < 6370)))
+
+    wfl = np.round(idxnum * flux / np.median(flux))
+    wfl[ww] -= 1
+    wfl[wsky] = 0  # Mask the sky lines
+    wfl = np.clip(wfl, 0.0, idxnum).astype(np.int)
+    idxarr = []
+    for ii in range(flux.size):
+        idxarr += wfl[ii] * [ii]
+
+    wvsm = wave[idxarr]
+    fxsm = flux[idxarr]
+    asrt = np.argsort(wvsm)
+
+    cont = gaussian_filter1d(fxsm[asrt], 40)
+    _, idn, _ = np.intersect1d(np.array(idxarr), np.arange(flux.size), return_indices=True)
+    f = interpolate.interp1d(wvsm[asrt][idn], cont[idn], kind='linear', bounds_error=False)
+    return f(wave)
 
 
 def evaluate_Q(fl,sig):
