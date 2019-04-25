@@ -50,7 +50,7 @@ spec_res = 2.0
 ### Some preferences
 warnings.filterwarnings('ignore') # linetools is very noisy!
 
-nspec = 20
+nspec = 10
 all_spec, all_absorbers = FS.generate_fakespec(nspec)
 sdss = DLASurvey.load_SDSS_DR5(sample='all')
 slines, sdict = tset.grab_sightlines(sdss, flg_bal=0)
@@ -119,7 +119,7 @@ for i,spec in enumerate(all_spec):
     absorbers = all_absorbers[i]
 
     try:
-        prox_co,knot_wv,knot_fl = QT.get_continuum(zQSO,prox_wv,prox_fl,prox_er,hspc=10,return_knots=True)
+        prox_co = QT.get_continuum_alt2(zQSO,prox_wv,prox_fl)
     except:
         print("\033[31m  %i: Couldn't get continuum.\033[0m"%i)
         prox_co = np.ones(len(prox_wv))
@@ -167,7 +167,7 @@ for i,spec in enumerate(all_spec):
         ax1.fill_between(prox_wv,prox_fl-prox_er,prox_fl+prox_er,alpha=0.5)
         ax1.plot(prox_wv,prox_fl,drawstyle='steps')
         ax1.plot(prox_wv,prox_co)
-        ax1.scatter(knot_wv,knot_fl,marker='x',s=40,color='r',zorder=5)
+        #ax1.scatter(knot_wv,knot_fl,marker='x',s=40,color='r',zorder=5)
 
         ax2.plot(prox_wv,norm_fl,drawstyle='steps')
         ax2.plot(prox_wv,prox_co/prox_co,'--')
