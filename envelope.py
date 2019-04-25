@@ -3,7 +3,8 @@ import astropy.io.fits as fits
 from scipy.optimize import curve_fit
 from matplotlib import pyplot as plt
 from scipy import interpolate
-from scipy.ndimage.filters import gaussian_filter1d
+from scipy.ndimage.filters import gaussian_filter1d, maximum_filter, minimum_filter
+from scipy.signal import savgol_filter
 
 filename = 'spec-4784-55677-0264.fits'
 fil = fits.open(filename)
@@ -14,12 +15,51 @@ flue = 1.0/np.sqrt(ivar)
 mask = np.zeros(wave.size)
 zem = 2.8867#2.85636
 
-ww = np.where(wave < 1215.6701*(1.0+zem))
-wave = wave[ww]
-flux = flux[ww]
-flue = flue[ww]
-ivar = ivar[ww]
-mask = mask[ww]
+#wave, flux = np.loadtxt("test_spec.dat", unpack=True)
+#zem = 3.6384499073028564
+
+idxnum = 4
+#ww = np.where(wave < 1215.6701 * (1.0 + zem))
+wsky = np.where(((wave > 5570) & (wave < 5580)) |
+                ((wave > 6295) & (wave < 6305)) |
+                ((wave > 6360) & (wave < 6370)))
+
+wfl = np.round(idxnum * flux / np.median(flux))
+
+# Perform a min/max filter
+minflux = minimum_filter(flux, size=20)
+maxflux = maximum_filter(flux, size=20)/(0.2+wfl/idxnum)
+frac = 0.3
+meanval = frac * minflux + (1 - frac) * maxflux
+# meanval = savgol_filter(flux, 51, 3)
+#fluxcut = maximum_filter(flux, size=10)/(0.5+0.5*wfl/idxnum)
+wfl[np.where((flux < meanval) & (wave < 1215.6701 * (1.0 + zem)))] = 0  # Mask low flux forest
+wfl[wsky] = 0  # Mask the sky lines
+wfl = np.clip(wfl, 0.0, 2*idxnum).astype(np.int)
+idxarr = []
+for ii in range(flux.size):
+    idxarr += wfl[ii] * [ii]
+
+wvsm = wave[idxarr]
+fxsm = flux[idxarr]
+asrt = np.argsort(wvsm)
+
+cont = gaussian_filter1d(fxsm[asrt], 60)
+_, idn, _ = np.intersect1d(np.array(idxarr), np.arange(flux.size), return_indices=True)
+f = interpolate.interp1d(wvsm[asrt][idn], cont[idn], kind='linear', bounds_error=False)
+cont = f(wave)
+#cont = gaussian_filter1d(cont, 20)
+
+plt.subplot(211)
+plt.plot(wave, flux, 'k-', drawstyle='steps')
+#plt.plot(wave, fluxcut, 'g-', drawstyle='steps')
+plt.plot(wave, cont, 'r-')
+plt.subplot(212)
+plt.plot(wave, flux/cont, 'k-', drawstyle='steps')
+plt.show()
+assert(False)
+
+np.gradient(flux, edge_order=2)
 
 hspc = 10
 nmax = wave.size//(2*hspc)

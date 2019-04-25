@@ -5,12 +5,13 @@ import pandas as pd
 import scipy.integrate as integrate
 #from scipy.interpolate import interp1d
 from scipy import interpolate
+from scipy.signal import medfilt, savgol_filter
 from scipy.special import wofz
 import astropy.io.fits as fits
 import astropy.units as u
 
 from linetools.spectra.xspectrum1d import XSpectrum1D as xspec
-from scipy.ndimage.filters import gaussian_filter1d
+from scipy.ndimage.filters import gaussian_filter1d, maximum_filter, minimum_filter
 
 import warnings
 import pickle
@@ -339,7 +340,7 @@ def moving_sig(arr,Npix=10):
     return result
 
 def get_continuum(zem,wave,flux,flue,hspc=None,kind='smooth',
-                        thresh=1.0,return_knots=False):
+                        thresh=1.0,return_knots=False,median_reject=True):
     ''' From RJC envolopy.py
     
     Give z_em, wavelength, flux, flux_error.
@@ -358,23 +359,33 @@ def get_continuum(zem,wave,flux,flue,hspc=None,kind='smooth',
         hspc = 10
     nmax = wave.size//(2*hspc)
 
-    # Setupt he arrays and their endpoints
+    # Setup the arrays and their endpoints
     xarr, yarr = np.zeros(nmax), np.zeros(nmax)
     xarr[0], xarr[1] = wave[0], wave[-1]
     yarr[0], yarr[1] = np.max(flux[:hspc]), np.max(flux[-hspc:])
     mask[:hspc] = 1
     mask[-hspc:] = 1
-    # Mask all significantly zero points
-    mask[np.where(flux<thresh*flue)] = 1
+    # Filter data to find significant zeros
+    if median_reject:
+        # TODO :: We may want a different kernal_size here. Ideally, we want to choose a kernal size that exactly matches
+        # the width of the lowest column density DLA trough that we are interested in (must be an odd integer).
+        kernsz = 9
+        flux_fltr = medfilt(flux, kernel_size=kernsz)
+        flue_fltr = 1.4826*np.abs(medfilt(flux-flux_fltr, kernel_size=kernsz))
+        # Mask all significantly zero points
+        mask[np.where(flux_fltr < thresh*flue_fltr)] = 1
+        mask[np.where(flux > flux_fltr + 5.0*flue_fltr)] = 1
+    else:
+        mask[np.where(flux<thresh*flue)] = 1
 
-    # Mask significant noise
+        # Mask significant noise
 
-    mask[np.where(flux>moving_ave(flux)+moving_sig(flux))] = 1
+        mask[np.where(flux>moving_ave(flux)+moving_sig(flux))] = 1
 
 
     # Now solves for all of the midpoints
     for ii in range(2, nmax):
-        ww = np.where(mask==0)[0]
+        ww = np.where(mask == 0)[0]
         if ww.size == 0:
             xarr = xarr[:ii]
             yarr = yarr[:ii]
@@ -390,9 +401,9 @@ def get_continuum(zem,wave,flux,flue,hspc=None,kind='smooth',
         mask[xmn:xmx] = 1
 
     asrt = np.argsort(xarr)
-    f = interpolate.interp1d(xarr[asrt], yarr[asrt], kind='linear')
+    f = interpolate.interp1d(xarr[asrt], yarr[asrt], kind='linear', bounds_error=False, fill_value='extrapolate')
     cont = f(wave)
-    contsm = gaussian_filter1d(cont, 2*hspc)
+    contsm = gaussian_filter1d(cont, hspc)
 
 
 
@@ -410,7 +421,106 @@ def get_continuum(zem,wave,flux,flue,hspc=None,kind='smooth',
         return cont_result,xarr[asrt],yarr[asrt]
     else:
         return cont_result
-        
+
+
+def get_continuum_alt(zem, wave, flux, flue, hspc=None, kind='smooth'):
+    mask = np.zeros(wave.size)
+    ww = np.where(wave < 100.0 * 1215.6701 * (1.0 + zem))
+    wave = wave[ww]
+    flux = flux[ww]
+    flue = flue[ww]
+    # ivar = ivar[ww]
+    mask = mask[ww]
+
+    if hspc is None:
+        hspc = 15
+    nmax = wave.size // (2 * hspc)
+
+    # Setup the arrays and their endpoints
+    xarr, yarr = np.zeros(nmax), np.zeros(nmax)
+    xarr[0], xarr[1] = wave[0], wave[-1]
+    yarr[0], yarr[1] = np.median(flux[:hspc]), np.median(flux[-hspc:])
+    mask[:hspc] = 1
+    mask[-hspc:] = 1
+    # Filter data to find significant zeros
+    # TODO :: We may want a different kernal_size here. Ideally, we want to choose a kernal size that exactly matches
+    # the width of the lowest column density DLA trough that we are interested in (must be an odd integer).
+    kernsz = 19
+    flux_fltr = medfilt(flux, kernel_size=kernsz)
+    flue_fltr = 1.4826 * np.abs(medfilt(flux - flux_fltr, kernel_size=kernsz))
+    # Mask all significantly zero points
+    mask[np.where(flux_fltr < flux_fltr - 5.0 * flue_fltr)] = 1
+    mask[np.where(flux > flux_fltr + 5.0 * flue_fltr)] = 1
+    # Mask all points around Lya emission of the QSO
+    mask[np.where((wave > 1190.0 * (1.0 + zem)) & (wave < 1240.0 * (1.0 + zem)))] = 1
+    # Perform a min/max filter
+    minflux = minimum_filter(flux, size=hspc)
+    maxflux = maximum_filter(flux, size=hspc)
+    frac = 0.7
+    meanval = frac*minflux + (1-frac)*maxflux
+    mask[np.where(flux < meanval)] = 1
+    # Now solves for all of the midpoints
+    for ii in range(2, nmax):
+        ww = np.where(mask == 0)[0]
+        if ww.size == 0:
+            xarr = xarr[:ii]
+            yarr = yarr[:ii]
+            break
+        amax = np.argmax(flux[ww])
+        xarr[ii] = wave[ww[amax]]
+        yarr[ii] = np.median(flux[ww[amax]-1:ww[amax]+2])
+        # Set the bounds
+        xmn = ww[amax] - hspc
+        xmx = ww[amax] + hspc + 1
+        if xmn < 0: xmn = 0
+        if xmx > wave.size: xmx = wave.size
+        mask[xmn:xmx] = 1
+
+    asrt = np.argsort(xarr)
+    f = interpolate.interp1d(xarr[asrt], yarr[asrt], kind='linear', bounds_error=False, fill_value='extrapolate')
+    cont = f(wave)
+    contsm = gaussian_filter1d(cont, hspc)
+
+    if kind == 'smooth':
+        return contsm
+    elif kind == 'linear':
+        return cont
+    elif kind == 'savgol':
+        return gaussian_filter1d(meanval, hspc)
+    elif kind == 'max':
+        return np.maximum(cont, contsm)
+    else:
+        warn_msg = '''\033[33m \n Choose 'kind' from: smooth, linear, max. Using default: smooth.\033[0m'''
+        warnings.warn(warn_msg)
+
+
+def get_continuum_alt2(zem, wave, flux, idxnum=4):
+    # Mask sky lines
+    wsky = np.where(((5570 < wave) & (wave < 5580)) |
+                    ((6295 < wave) & (wave < 6305)) |
+                    ((6360 < wave) & (wave < 6370)))
+
+    wfl = np.round(idxnum * flux / np.median(flux))
+    # Filter the low flux data
+    minflux = minimum_filter(flux, size=20)
+    maxflux = maximum_filter(flux, size=20) / (0.2 + wfl / idxnum)
+    frac = 0.3
+    fluxcut = frac * minflux + (1 - frac) * maxflux
+    wfl[np.where((flux < fluxcut) & (wave < 1215.6701 * (1.0 + zem)))] = 0  # Mask low flux forest
+    wfl[wsky] = 0  # Mask the sky lines
+    wfl = np.clip(wfl, 0.0, 2*idxnum).astype(np.int)
+    idxarr = []
+    for ii in range(flux.size):
+        idxarr += wfl[ii] * [ii]
+
+    wvsm = wave[idxarr]
+    fxsm = flux[idxarr]
+    asrt = np.argsort(wvsm)
+
+    cont = gaussian_filter1d(fxsm[asrt], 60)
+    _, idn, _ = np.intersect1d(np.array(idxarr), np.arange(flux.size), return_indices=True)
+    f = interpolate.interp1d(wvsm[asrt][idn], cont[idn], kind='linear', bounds_error=False)
+    return f(wave)
 
 
 def evaluate_Q(fl,sig):
