@@ -595,7 +595,7 @@ def extract_features(z_QSO,scores_wv,score_vals,threshold,min_width=3.5,scaled=T
 
 def match_features(z_QSO,absorber_CDs,absorber_zs, #absorber_bs,
                     feature_widths,feature_zs,#feature_bs,
-                    blank_value=-1.0):
+                    blank_value=-1.0,extras=None):
     
     Ntuples = max( len(feature_widths),len(absorber_CDs) )
 
@@ -614,6 +614,9 @@ def match_features(z_QSO,absorber_CDs,absorber_zs, #absorber_bs,
         else: # The 'normal' case where a feature matches a DLA.                
             this_feature = (z_QSO,absorber_CDs[k],absorber_zs[k], #absorber_bs[k],
                                   feature_widths[k], feature_zs[k]) #, feature_bs[k])
+
+        if extras is not None:
+            this_feature = (*this_feature,*extras)
 
         this_QSO.append(this_feature) 
 

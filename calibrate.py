@@ -50,8 +50,27 @@ spec_res = 2.0
 ### Some preferences
 warnings.filterwarnings('ignore') # linetools is very noisy!
 
-nspec = 10
-all_spec, all_absorbers = FS.generate_fakespec(nspec)
+
+
+
+nspec = 5000
+spec_pkl_loc = './calibrate_spec%i.pkl'%nspec
+
+spec_pkl_exists = os.path.exists(spec_pkl_loc)
+
+if spec_pkl_exists is False:
+    all_spec, all_absorbers = FS.generate_fakespec(nspec,mix=True)
+    with open(spec_pkl_loc, 'wb') as f:
+        pickle.dump((all_spec,all_absorbers),f)
+else:
+    print('Pickle exists! Read %s'%spec_pkl_loc)
+    with open(spec_pkl_loc, 'rb') as f:
+        (all_spec, all_absorbers) = pickle.load(f)
+
+
+
+
+
 sdss = DLASurvey.load_SDSS_DR5(sample='all')
 slines, sdict = tset.grab_sightlines(sdss, flg_bal=0)
 # qq=0  # i.e. qq goes from 0 to nspec-1...
@@ -64,40 +83,44 @@ slines, sdict = tset.grab_sightlines(sdss, flg_bal=0)
 # print(isl)
 # print(zqso)
 
-DLA_def = 20.3
-min_col_density = 15.0
+DLA_def = 19.5
+#min_col_density = 15.0
 min_feature_width = 5
 # No *single* absorber is likely to be wider than 400 Ang...!?
 #MW = 400.0 #max_width
 #num_QSOs = 10000
 
-threshold_vals = np.arange(-10,10,0.2) # A list of threshold values
+threshold_vals = np.arange(-1,9,0.2) # A list of threshold values
 
 # Initialize the horrible data strucure:
 data_structure = [ [] for i in threshold_vals ]
-cols = 'zQSO absorber_CDs absorber_zs feature_widths feature_zs'.split()
+
+med_snr = []
+z_vals = []
 
 
 # If we've done it before...
 #pickle_exists = os.path.exists(pkl_file_loc)
 
 for i,spec in enumerate(all_spec):
+    if i>5000:
+        break
 
     absorbers = all_absorbers[i]
     isl = absorbers['sl'] # Find the i'th sightline
     nDLA = all_absorbers[i]['nDLA']
 
     zQSO = slines['ZEM'][isl]
+    z_vals.append(zQSO)
 
     npix = (1.0+zQSO)*rf_window//spec_res
-
-    wvmin = spec.wvmin.value/Lya
 
     wv = spec.wavelength.value
     fl = spec.flux.value
     er = 1.0/np.sqrt(spec.ivar.value)
 
     em_wv = Lya*(1.0+zQSO)
+    wvmin = spec.wvmin.value/Lya
 
     absorber_CDs = np.array([absorbers[ab]['NHI'] for ab in range(nDLA)])
     absorber_zs = np.array([absorbers[ab]['zabs'] for ab in range(nDLA)])
@@ -105,8 +128,7 @@ for i,spec in enumerate(all_spec):
     #prox_zmin = max(zQSO + v_min/c*(1.0+zQSO), wvmin-1.0 )
     #prox_zmax = max(zQSO + v_max/c*(1.0+zQSO), wvmin-1.0 + 0.01)
 
-    #prox_wvmin = (1.0+prox_zmin)*Lya
-    #prox_wvmax = (1.0+prox_zmax)*Lya
+    #prox_wvmin,prox_wvmax = (1.0+prox_zmin)*Lya, (1.0+prox_zmax)*Lya
 
     prox_mask = (spec_min < wv) & (wv < em_wv) #(prox_wvmin < wv) & (wv < prox_wvmax)
 
@@ -116,19 +138,18 @@ for i,spec in enumerate(all_spec):
 
     #prox_co = co[ prox_mask ]
 
-    absorbers = all_absorbers[i]
-
     try:
         prox_co = QT.get_continuum_alt2(zQSO,prox_wv,prox_fl)
     except:
         print("\033[31m  %i: Couldn't get continuum.\033[0m"%i)
         prox_co = np.ones(len(prox_wv))
 
-    print(np.min(prox_wv),np.max(prox_wv))
-
     norm_fl = prox_fl/prox_co
     norm_er = prox_er/prox_co
 
+    snr =  1.0/norm_er # As norm_fl = 1.0 everywhere!
+    med_snr_val = np.nanmedian(snr)
+    med_snr.append( med_snr_val )
 
     score_wv,score_vals = QT.evaluate_scores(prox_wv,norm_fl,norm_er,npix)
 
@@ -137,13 +158,14 @@ for i,spec in enumerate(all_spec):
         feature_widths, feature_zs = QT.extract_features(zQSO, score_wv, score_vals, threshold=th)
 
         # Match the widest feature to the largest column density
-        QSO_matches = QT.match_features(zQSO, absorber_CDs, absorber_zs, feature_widths, feature_zs)
+        QSO_data = (zQSO, absorber_CDs, absorber_zs, feature_widths, feature_zs)
+        QSO_matches = QT.match_features(*QSO_data,extras=[i,med_snr_val])
         data_structure[j].extend(QSO_matches)
 
     QT.write(i + 1, nspec)
 
 
-    plotting = True
+    plotting = False
 
     if plotting:
 
@@ -159,7 +181,11 @@ for i,spec in enumerate(all_spec):
         for ax in [ax1,ax2]:
             ax.set_xticks([])
             for j in range(nDLA):
-                ax.axvline((1.0+absorbers[j]['zabs'])*Lya,color='r')
+                wvDLA = (1.0+absorbers[j]['zabs'])*Lya
+                DLA_NHI = absorbers[j]['NHI']
+                ax.axvline(wvDLA,color='r')
+                if ax is ax2:
+                    ax.text(wvDLA - 10.0, -2, '%.1f' % DLA_NHI, horizontalalignment='right')
 
         for ax in [ax1,ax2,ax3]:
             ax.set_xlim(np.min(prox_wv),np.max(prox_wv))
@@ -175,27 +201,55 @@ for i,spec in enumerate(all_spec):
         #ax2.scatter(knot_wv,knot_fl/prox_co,marker='x',s=40,color='r',zorder=5)
 
         ax3.plot(score_wv,score_vals)
+        ax3.set_ylim(-2,5)
 
         plt.subplots_adjust(hspace=0)
 
         plt.show()
+print('')
 
+
+bins = np.arange(0,7,0.1)
+
+
+fig,ax = plt.subplots(figsize=(6,6))
+ax.hist(med_snr,bins=bins)
+ax.set_xlabel('Median spec SNR')
+#plt.show()
+
+fig,ax = plt.subplots(figsize=(6,6))
+ax.hist(z_vals,bins=bins)
+ax.set_xlabel('Redshift z')
+#plt.show()
+
+fig = plt.figure(figsize=(6,6))
+gs = plt.GridSpec(3,3)
+axm = fig.add_subplot(gs[:2,1:])
+axx,axy = fig.add_subplot(gs[-1:,1:]),fig.add_subplot(gs[:-1,:1])
+hist2d,_,_ = np.histogram2d(z_vals,med_snr,bins=[bins,bins])
+hist2d[ hist2d == 0] = np.nan
+axm.pcolormesh(bins,bins,hist2d.T)
+axx.hist(z_vals,bins=bins)
+axy.hist(med_snr,bins=bins,orientation='horizontal')
+fig.subplots_adjust(hspace=0,wspace=0)
+axm.set_xlim(bins[0],bins[-1]),axm.set_ylim(bins[0],bins[-1])
+axx.set_xlim(bins[0],bins[-1]),axy.set_ylim(bins[0],bins[-1])
+plt.show()
 
 ### Rearrange the data into a nicer format.
 
-min_widths = np.arange(1.5,6.5,0.5)
+min_widths = np.arange(3.0,8.0,0.5)
 
 N_pos = np.zeros( (len(min_widths),len(threshold_vals)) )
 N_neg = np.zeros( (len(min_widths),len(threshold_vals)) )
 N_det = np.zeros( (len(min_widths),len(threshold_vals)) )
 
-
+cols = 'zQSO absorber_CDs absorber_zs feature_widths feature_zs specID snr'.split()
 for j, th in enumerate(threshold_vals):
     df = pd.DataFrame(data_structure[j], columns=cols)
 
     true_DLA_mask = (df['absorber_CDs'] > DLA_def)
     N_true = float(len(df[true_DLA_mask]))  # This should be the same every loop...!
-    print(N_true)
 
     for k, w in enumerate(min_widths):
         # For detection above this minumum feature width,
@@ -211,114 +265,192 @@ for j, th in enumerate(threshold_vals):
 recall = N_pos / N_true
 contamination = N_neg / (N_neg + N_pos)
 
-# An array to save the values of area under the ROC curve.
-AUC = np.zeros(len(min_widths))
+fig1,ax1 = plt.subplots(figsize=(8,4))
+fig2,ax2 = plt.subplots(figsize=(8,4))
+fig3,ax3 = plt.subplots(figsize=(6,6))
 
-# Make some axes to do the plots...
-fig1 = plt.figure(figsize=(8, 5))
-ax1a = fig1.add_subplot(211)
-ax1b = fig1.add_subplot(212)
+for k,w in enumerate(min_widths):
+    rk = recall[k,:]
+    ck = contamination[k,:]
 
-fig2, ax2 = plt.subplots(figsize=(8, 5))
+    ax1.plot(threshold_vals,rk,'C%i'%k,label='%.1f'%w)
+    ax1.plot(threshold_vals,ck,'C%i--'%k)
 
-for k, w in enumerate(min_widths):
-    # plt.plot(threshold_vals,completeness[k,:],color='C%i'%k)
+    ax2.plot(threshold_vals,rk*(1-ck),'C%i'%k,label='%.1f'%w)
 
-    # Recall & contam for min_width[k], the slice is for 'neatness'
-    Rk = recall[k, :]
-    Ck = contamination[k, :]
+    ax3.plot(ck,rk,'C%i'%k,label='%.1f'%w)
 
-    ax1a.plot(threshold_vals, Rk * (1.0 - Ck), color='C%i' % k, label=w)
-    ax1b.plot(threshold_vals, 1.0 - Ck, color='C%i' % k)
-    ax1b.plot(threshold_vals, Rk, ls='--', color='C%i' % k)
+ax1.legend(ncol=2)
+ax2.legend(ncol=2)
+ax3.legend(ncol=2)
+plt.show()
 
-    if k == 0:  # Only want one solid & one dash line in the legend.
-        ax1b.plot((0, 0), (0, 0), 'k--', label='Contamination')
-        ax1b.plot((0, 0), (0, 0), 'k', label='Recall')
-    ax2.plot(Ck, Rk, color='C%i' % k)
 
-    Ck_mask = np.isfinite(Ck)  # Can't do the AUC integration --
-    Rk_mask = np.isfinite(Rk)  # -- if we have NaN values!
+fig1,ax1 = plt.subplots(figsize=(6,6))
 
-    try:
-        AUC[k] = integrate.trapz(Rk[Ck_mask & Rk_mask][::-1], x=Ck[Ck_mask & Rk_mask][::-1])
-    except:
-        print("%.1f: can't integrate")
+vals = [0.2]
 
-fig1.subplots_adjust(hspace=0)
-ax1a.legend(ncol=2)
-ax1b.legend()
-ax1a.set_ylabel(r'$R\times\left(1-C\right)$', fontsize=18)
-ax1b.set_ylabel(r'$R,C$', fontsize=18)
-ax1b.set_xlabel(r'Threshold score', fontsize=18)
+for k,w in enumerate(vals):
 
-ax2.set_xlabel(r'Contamination $C$', fontsize=18)
-ax2.set_ylabel(r'Recall $R$', fontsize=18)
 
-ax2_sub = fig2.add_axes([0.45, 0.18, 0.43, 0.4])  # ,transform=ax2.transAxes)
-ax2_sub.plot(min_widths, AUC, 'k')
-ax2_sub.set_ylabel(r'AUC', fontsize=18)
+    iw = np.digitize(w,threshold_vals)-1
 
-# Choose a few example thresholds to look at...
-th_vals = [10.0, 20.0, 50.0]
-th_indices = np.digitize(th_vals, threshold_vals) - 1
+    print(w,threshold_vals[iw])
 
-### Some more plots...
+    df = pd.DataFrame(data_structure[iw], columns=cols)
+    # A reminder: cols='zQSO absorber_CDs absorber_zs feature_widths feature_zs'.split()
 
-width_bins = np.arange(0, 15, 0.2)
-width_mids = QT.midpoints(width_bins)
+    mask = (df['absorber_CDs'] > 0)
 
-nHI_bins = np.log10(QT.nHI_vals)
-nHI_mids = QT.midpoints(nHI_bins)
+    ax1.scatter(df['absorber_CDs'],df['feature_widths'],s=1)
 
-fig_scatter, ax_scatter = plt.subplots()
-ax_scatter.set_xlabel(r'$\log_{10}\left(n_{\mathrm{HI}}\right)$ Column density')
-ax_scatter.set_ylabel('Feature width [pix]')
+plt.show()
 
-fig_pcolor, ax_pcolor = plt.subplots()
-ax_pcolor.set_xlabel(r'$\log_{10}\left(n_{\mathrm{HI}}\right)$ Column density')
-ax_pcolor.set_ylabel(r'$\frac{\mathrm{Feature\;width\;[pix]}}{1+z_{QSO}}$', fontsize=20)
+snr_ranges=[0,0.5,1.0,2.0,9.9]
+figs = [plt.figure(figsize=(12,6)) for i in range(3)]
 
-# Contour plot is a failed experiment.
-fig_contour, ax_contour = plt.subplots()
-ax_contour.set_xlabel(r'$\log_{10}\left(n_{\mathrm{HI}}\right)$ Column density')
-ax_contour.set_ylabel(r'$\frac{\mathrm{Feature\;width\;[pix]}}{1+z_{QSO}}$', fontsize=20)
+for i,(low,high) in enumerate(zip(snr_ranges[:-1],snr_ranges[1:])):
+    ax1,ax2,ax3 = (fig.add_subplot(2,2,i+1) for fig in figs)
 
-fig_hist, ax_hist = plt.subplots()
-ax_hist.set_xlabel(r'$z_{est}-z_{abs}$', fontsize=20)
+    N_pos_i = np.zeros((len(min_widths), len(threshold_vals)))
+    N_neg_i = np.zeros((len(min_widths), len(threshold_vals)))
+    N_det_i = np.zeros((len(min_widths), len(threshold_vals)))
 
-fig_zerr = plt.figure()
-gs = plt.GridSpec(3, 3)
-ax_zerr1 = fig_zerr.add_subplot(gs[:2, :])
-ax_zerr2 = fig_zerr.add_subplot(gs[2:, :])
-ax_zerr2.set_xlabel(r'$z_{QSO}-z_{abs}$', fontsize=20)
-ax_zerr1.set_ylabel(r'$z_{est}-z_{abs}$', fontsize=20)
+    for j, th in enumerate(threshold_vals):
+        df = pd.DataFrame(data_structure[j], columns=cols)
 
-for i, th in enumerate(th_vals):
-    df = pd.DataFrame(data_structure[th_indices[i]], columns=cols)
+        snr_mask = (low < df['snr']) & (df['snr'] < high)
+        df = df[ snr_mask ]
 
-    true_absorber_mask = (df['absorber_CDs'] > 0)
-    detected_mask = (df['feature_widths'] > 3)
+        true_DLA_mask = (df['absorber_CDs'] > DLA_def)
+        N_true = float(len(df[true_DLA_mask]))  # This should be the same every loop...!
 
-    # Look only at the true stuff that we've detected...
-    df = df[true_absorber_mask & detected_mask]
+        for k, w in enumerate(min_widths):
+            # For detection above this minumum feature width,
+            # how many true positives, false positives, total positives?
 
-    ax_scatter.scatter(df['absorber_CDs'], df['feature_widths'], color='C%i' % i, s=2)
+            detected_mask = (df['feature_widths'] > w)  # *(1.0+df['z_QSO'])
 
-    hist2d, _, _ = np.histogram2d(df['absorber_CDs'].values, df['feature_widths'].values, bins=[nHI_bins, width_bins])
-    hist1d, _ = np.histogram(df['absorber_CDs'], bins=nHI_bins)
-    hist2d = hist2d / hist1d[:, None]
-    hist2d[hist2d == 0] = np.nan
-    if i == 0:
-        cp = ax_pcolor.pcolormesh(nHI_bins, width_bins, hist2d.T, vmin=0)
-        plt.colorbar(cp, ax=ax_pcolor)
+            N_pos_i[k, j] = float(len(df[true_DLA_mask & detected_mask]))
+            N_neg_i[k, j] = float(len(df[~true_DLA_mask & detected_mask]))
+            N_det_i[k, j] = float(len(df[detected_mask]))  # = N_pos+N_neg??
 
-    xx, yy = np.meshgrid(nHI_mids, width_mids)
-    # ax_contour.contour(xx,yy,hist2d.T,levels=[0.01,0.05,0.1],color='C%i'%i)
+    # Interested in...
+    recall_i = N_pos_i / N_true
+    contamination_i = N_neg_i / (N_neg_i + N_pos)
 
-    ax_hist.hist(df['absorber_zs'] - df['feature_zs'], bins=np.linspace(-0.025, 0.025, 50), color='C%i' % i,
-                 histtype='step', density=True)
+    for k, w in enumerate(min_widths):
+        rk_i = recall_i[k, :]
+        ck_i = contamination_i[k, :]
 
-    ax_zerr1.scatter(df['absorber_zs'] - df['zQSO'], df['feature_zs'] - df['absorber_zs'], s=2)
+        ax1.plot(threshold_vals, rk_i, 'C%i' % k, label='%.1f' % w)
+        ax1.plot(threshold_vals, ck_i, 'C%i--' % k)
+
+        ax2.plot(threshold_vals, rk_i * (1 - ck_i), 'C%i' % k, label='%.1f' % w)
+
+        ax3.plot(ck_i, rk_i, 'C%i' % k, label='%.1f' % w)
+
+        for ax in [ax1,ax2,ax3]:
+            ax.set_title('%.1f<SNR<%.1f'%(low,high))
+
+plt.show()
+
+
+z_ranges=[2,2.5,3.0,4.0,9.9]
+figs = [plt.figure(figsize=(12,6)) for i in range(3)]
+
+for i,(low,high) in enumerate(zip(z_ranges[:-1],z_ranges[1:])):
+    ax1,ax2,ax3 = (fig.add_subplot(2,2,i+1) for fig in figs)
+
+    N_pos_i = np.zeros((len(min_widths), len(threshold_vals)))
+    N_neg_i = np.zeros((len(min_widths), len(threshold_vals)))
+    N_det_i = np.zeros((len(min_widths), len(threshold_vals)))
+
+    for j, th in enumerate(threshold_vals):
+        df = pd.DataFrame(data_structure[j], columns=cols)
+
+        z_mask = (low < df['zQSO']) & (df['zQSO'] < high)
+        df = df[ z_mask ]
+
+        true_DLA_mask = (df['absorber_CDs'] > DLA_def)
+        N_true = float(len(df[true_DLA_mask]))  # This should be the same every loop...!
+
+        for k, w in enumerate(min_widths):
+            # For detection above this minumum feature width,
+            # how many true positives, false positives, total positives?
+
+            detected_mask = (df['feature_widths'] > w)  # *(1.0+df['z_QSO'])
+
+            N_pos_i[k, j] = float(len(df[true_DLA_mask & detected_mask]))
+            N_neg_i[k, j] = float(len(df[~true_DLA_mask & detected_mask]))
+            N_det_i[k, j] = float(len(df[detected_mask]))  # = N_pos+N_neg??
+
+    # Interested in...
+    recall_i = N_pos_i / N_true
+    contamination_i = N_neg_i / (N_neg_i + N_pos)
+
+    for k, w in enumerate(min_widths):
+        rk_i = recall_i[k, :]
+        ck_i = contamination_i[k, :]
+
+        ax1.plot(threshold_vals, rk_i, 'C%i' % k, label='%.1f' % w)
+        ax1.plot(threshold_vals, ck_i, 'C%i--' % k)
+
+        ax2.plot(threshold_vals, rk_i * (1 - ck_i), 'C%i' % k, label='%.1f' % w)
+
+        ax3.plot(ck_i, rk_i, 'C%i' % k, label='%.1f' % w)
+
+        for ax in [ax1,ax2,ax3]:
+            ax.set_title('%.1f<z<%.1f'%(low,high))
+
+plt.show()
+
+
+wv_ranges=[3900.0,4500.0,5000.0,6000.0,7000.0]
+figs = [plt.figure(figsize=(12,6)) for i in range(3)]
+
+for i,(low,high) in enumerate(zip(wv_ranges[:-1],wv_ranges[1:])):
+    ax1,ax2,ax3 = (fig.add_subplot(2,2,i+1) for fig in figs)
+
+    N_pos_i = np.zeros((len(min_widths), len(threshold_vals)))
+    N_neg_i = np.zeros((len(min_widths), len(threshold_vals)))
+    N_det_i = np.zeros((len(min_widths), len(threshold_vals)))
+
+    for j, th in enumerate(threshold_vals):
+        df = pd.DataFrame(data_structure[j], columns=cols)
+
+        wv_mask = (low < Lya*(1+df['absorber_zs'])) & (Lya*(1+df['absorber_zs']) < high)
+        df = df[ wv_mask ]
+
+        true_DLA_mask = (df['absorber_CDs'] > DLA_def)
+        N_true = float(len(df[true_DLA_mask]))  # This should be the same every loop...!
+
+        for k, w in enumerate(min_widths):
+            # For detection above this minumum feature width,
+            # how many true positives, false positives, total positives?
+
+            detected_mask = (df['feature_widths'] > w)  # *(1.0+df['z_QSO'])
+
+            N_pos_i[k, j] = float(len(df[true_DLA_mask & detected_mask]))
+            N_neg_i[k, j] = float(len(df[~true_DLA_mask & detected_mask]))
+            N_det_i[k, j] = float(len(df[detected_mask]))  # = N_pos+N_neg??
+
+    # Interested in...
+    recall_i = N_pos_i / N_true
+    contamination_i = N_neg_i / (N_neg_i + N_pos)
+
+    for k, w in enumerate(min_widths):
+        rk_i = recall_i[k, :]
+        ck_i = contamination_i[k, :]
+
+        ax1.plot(threshold_vals, rk_i, 'C%i' % k, label='%.1f' % w)
+        ax1.plot(threshold_vals, ck_i, 'C%i--' % k)
+
+        ax2.plot(threshold_vals, rk_i * (1 - ck_i), 'C%i' % k, label='%.1f' % w)
+
+        ax3.plot(ck_i, rk_i, 'C%i' % k, label='%.1f' % w)
+
+        for ax in [ax1,ax2,ax3]:
+            ax.set_title('%.1f<wv<%.1f'%(low,high))
 
 plt.show()
