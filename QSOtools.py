@@ -327,8 +327,20 @@ def generate_spectrum(z_QSO,sig1=0.05,sig2=0.05,wv_min=SDSS_min,wv_max=SDSS_max,
 
     return observed_wv,observed_flux,sigma,absorber_CDs,absorber_zs#,absorber_bs
 
+def moving_ave(arr,Npix=10):
+    result = np.zeros(len(arr))
+    for i,v in enumerate(arr):
+        result[i] = np.average(arr[i-Npix//2:i+Npix//2])
+    return result
 
-def get_continuum(zem, wave, flux, flue, hspc=None, kind='smooth'):
+def moving_sig(arr,Npix=10):
+    result = np.zeros(len(arr))
+    for i,v in enumerate(arr):
+        result[i] = np.std(arr[i-Npix//2:i+Npix//2])
+    return result
+
+def get_continuum(zem,wave,flux,flue,hspc=None,kind='smooth',
+                        thresh=1.0,return_knots=False,median_reject=True):
     ''' From RJC envolopy.py
     
     Give z_em, wavelength, flux, flux_error.
@@ -354,14 +366,23 @@ def get_continuum(zem, wave, flux, flue, hspc=None, kind='smooth'):
     mask[:hspc] = 1
     mask[-hspc:] = 1
     # Filter data to find significant zeros
-    # TODO :: We may want a different kernal_size here. Ideally, we want to choose a kernal size that exactly matches
-    # the idth of the lowest column density DLA trough that we are interested in (must be an odd integer).
-    kernsz = 9
-    flux_fltr = medfilt(flux, kernel_size=kernsz)
-    flue_fltr = 1.4826*np.abs(medfilt(flux-flux_fltr, kernel_size=kernsz))
-    # Mask all significantly zero points
-    mask[np.where(flux_fltr < 3.0*flue_fltr)] = 1
-    mask[np.where(flux > flux_fltr + 5.0*flue_fltr)] = 1
+    if median_reject:
+        # TODO :: We may want a different kernal_size here. Ideally, we want to choose a kernal size that exactly matches
+        # the width of the lowest column density DLA trough that we are interested in (must be an odd integer).
+        kernsz = 9
+        flux_fltr = medfilt(flux, kernel_size=kernsz)
+        flue_fltr = 1.4826*np.abs(medfilt(flux-flux_fltr, kernel_size=kernsz))
+        # Mask all significantly zero points
+        mask[np.where(flux_fltr < thresh*flue_fltr)] = 1
+        mask[np.where(flux > flux_fltr + 5.0*flue_fltr)] = 1
+    else:
+        mask[np.where(flux<thresh*flue)] = 1
+
+        # Mask significant noise
+
+        mask[np.where(flux>moving_ave(flux)+moving_sig(flux))] = 1
+
+
     # Now solves for all of the midpoints
     for ii in range(2, nmax):
         ww = np.where(mask == 0)[0]
@@ -384,15 +405,22 @@ def get_continuum(zem, wave, flux, flue, hspc=None, kind='smooth'):
     cont = f(wave)
     contsm = gaussian_filter1d(cont, hspc)
 
+
+
     if kind == 'smooth':
-        return contsm
+        cont_result = contsm
     elif kind == 'linear':
-        return cont
+        cont_result = cont
     elif kind == 'max':
-        return np.maximum(cont, contsm)
+        cont_result = np.maximum(cont,contsm)
     else:
         warn_msg = '''\033[33m \n Choose 'kind' from: smooth, linear, max. Using default: smooth.\033[0m'''
         warnings.warn(warn_msg)
+
+    if return_knots:
+        return cont_result,xarr[asrt],yarr[asrt]
+    else:
+        return cont_result
 
 
 def get_continuum_alt(zem, wave, flux, flue, hspc=None, kind='smooth'):
@@ -467,9 +495,10 @@ def get_continuum_alt(zem, wave, flux, flue, hspc=None, kind='smooth'):
 
 
 def get_continuum_alt2(zem, wave, flux, idxnum=4):
-    wsky = np.where(((wave > 5570) & (wave < 5580)) |
-                    ((wave > 6295) & (wave < 6305)) |
-                    ((wave > 6360) & (wave < 6370)))
+    # Mask sky lines
+    wsky = np.where(((5570 < wave) & (wave < 5580)) |
+                    ((6295 < wave) & (wave < 6305)) |
+                    ((6360 < wave) & (wave < 6370)))
 
     wfl = np.round(idxnum * flux / np.median(flux))
     # Filter the low flux data
@@ -566,7 +595,7 @@ def extract_features(z_QSO,scores_wv,score_vals,threshold,min_width=3.5,scaled=T
 
 def match_features(z_QSO,absorber_CDs,absorber_zs, #absorber_bs,
                     feature_widths,feature_zs,#feature_bs,
-                    blank_value=-1.0):
+                    blank_value=-1.0,extras=None):
     
     Ntuples = max( len(feature_widths),len(absorber_CDs) )
 
@@ -586,7 +615,10 @@ def match_features(z_QSO,absorber_CDs,absorber_zs, #absorber_bs,
             this_feature = (z_QSO,absorber_CDs[k],absorber_zs[k], #absorber_bs[k],
                                   feature_widths[k], feature_zs[k]) #, feature_bs[k])
 
-        this_QSO.append(this_feature) 
+        if extras is not None:
+            this_feature = (*this_feature,*extras)
+
+        this_QSO.append(this_feature)
 
     return this_QSO
 
