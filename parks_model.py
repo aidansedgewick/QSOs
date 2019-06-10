@@ -37,12 +37,10 @@ def load_model(verbose=1):
     parks_json = r'model_gensample_v4.3_hyperparams.json'
 
     # load json and create model
-    json_file = open(parks_dir+parks_json, 'r')
-    loaded_model_json = json_file.read()
-    json_file.close()
-    loaded_model = model_from_json(loaded_model_json)
-
-    pdb.set_trace()
+    # json_file = open(parks_dir+parks_json, 'r')
+    # loaded_model_json = json_file.read()
+    # json_file.close()
+    # loaded_model = model_from_json(loaded_model_json)
 
     # start tensorflow session
     with tf.Session() as sess:
