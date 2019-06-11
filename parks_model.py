@@ -89,11 +89,11 @@ def load_model(verbose=1):
     ID_output = Dense(1+nHIwav, activation='softmax', name='ID_output')(fullcon)
     N_output = Dense(1, activation='linear', name='N_output')(fullcon)
     z_output = Dense(1, activation='linear', name='z_output')(fullcon)
-    model = Model(inputs=inputs, outputs=[ID_output, N_output, z_output, b_output])
+    model = Model(inputs=inputs, outputs=[ID_output, N_output, z_output])
     # Summarize layers
     print(model.summary())
     # Plot graph
-    plot_model(model, to_file='cnn_find_model.png')
+    plot_model(model, to_file='parks_model.png')
     # Compile
     loss = {'ID_output': 'categorical_crossentropy',
             'N_output': mse_mask(),
