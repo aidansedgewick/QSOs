@@ -1,110 +1,122 @@
-
-import pdb
+import json, os, urllib, pdb, numpy as np
+import astropy.io.fits as fits
+from matplotlib import pyplot as plt
 import dla_cnn
-import numpy as np
-import tensorflow as tf
-import keras.backend as K
-from keras.utils import plot_model
-from keras.models import Model
-from keras.layers import Input
-from keras.layers import Dense
-from keras.layers import Flatten
-from keras.layers.convolutional import Conv1D
-from keras.layers.convolutional import MaxPooling1D
-from keras.layers.merge import concatenate
-from keras.layers import Dropout, BatchNormalization
-from keras.models import model_from_json
+from dla_cnn.data_model.Sightline import Sightline
+parks_dir = '/'.join(dla_cnn.__file__.split('/')[:-1])+'/models/'
+model_checkpoint = parks_dir + 'model_gensample_v7.1'
+
+def plot(y, x_label="Rest Frame", y_label="Flux", x=None, ylim=[-2, 12], xlim=None, z_qso=None):
+    fig, ax = plt.subplots(figsize=(15, 3.75))
+    if x is None:
+        ax.plot(y, '-k')
+    else:
+        ax.plot(x, y, '-k')
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
+    plt.ylim(ylim)
+    plt.xlim(xlim)
+
+    return fig, ax
 
 
-# Define custom loss
-def mse_mask():
-    # Create a loss function that adds the MSE loss to the mean of all squared activations of a specific layer
-    def loss(y_true, y_pred):
-        mask = tf.cast(tf.not_equal(y_true, 0), tf.float32)
-        return K.mean(mask * K.square(y_pred - y_true), axis=-1)
-    # Return a function
-    return loss
+def parks_model(flux, loglam, z_qso, plot=False):
+    idnum = 0
+    sl = Sightline(idnum, dlas=None, flux=flux, loglam=loglam, z_qso=z_qso)
+    sl.process(model_checkpoint)
+    if plot:
+        lam = 10.0 ** loglam
+        lam_rest = lam / (1.0 + z_qso)
+        ix_dla_range = np.logical_and(lam_rest >= REST_RANGE[0], lam_rest <= REST_RANGE[1])
+        y_plot_range = np.mean(flux[np.logical_not(np.isnan(flux))]) + 10
+        plt.plot(10.0**loglam, flux, 'k-', drawstyle='steps')
+        for ii in range(len(sl.dlas)):
+            plt.axvline(sl.dlas[ii], 'r-')
+        for ii in range(len(sl.subdlas)):
+            plt.axvline(sl.subdlas[ii], ymin=0.0, ymax=y_plot_range, 'b-')
+        plt.show()
+    return sl
 
-
-# load the Parks et al. (2018) model
-def load_model(verbose=1):
-    parks_dir = '/'.join(dla_cnn.__file__.split('/')[:-1]) + '/models/'
-    #parks_wght = r'model_gensample_v7.1.ckpt.data-00000-of-00001'
-    #parks_meta = r'model_gensample_v7.1.ckpt.index'
-    #parks_json = r'model_gensample_v7.1_hyperparams.json'
-    parks_wght = r'model_gensample_v4.3.ckpt'
-    parks_meta = parks_wght+'.meta'
-    parks_json = r'model_gensample_v4.3_hyperparams.json'
-
-    # load json and create model
-    # json_file = open(parks_dir+parks_json, 'r')
-    # loaded_model_json = json_file.read()
-    # json_file.close()
-    # loaded_model = model_from_json(loaded_model_json)
-
-    # start tensorflow session
-    with tf.Session() as sess:
-
-        # import graph
-        saver = tf.train.import_meta_graph(parks_dir+parks_meta)
-
-        # load weights for graph
-        saver.restore(sess, parks_dir+parks_wght)
-
-        # get all global variables (including model variables)
-        vars_global = tf.global_variables()
-
-        # get their name and value and put them into dictionary
-        sess.as_default()
-        model_vars = {}
-        for var in vars_global:
-            try:
-                model_vars[var.name] = var.eval()
-            except:
-                print("For var={}, an exception occurred".format(var.name))
-    pdb.set_trace()
-
-    # Build the Parks et al. (2018) model
-
-
-    inputs = []
-    concat_arr = []
-    for ll in range(nHIwav):
-        inputs.append(Input(shape=(spec_len, nHIwav), name='Ly{0:d}'.format(ll+1)))
-        conv11 = Conv1D(filters=128, kernel_size=3, activation='relu')(inputs[-1])
-        pool11 = MaxPooling1D(pool_size=3)(conv11)
-        norm11 = BatchNormalization()(pool11)
-        conv12 = Conv1D(filters=128, kernel_size=5, activation='relu')(norm11)
-        pool12 = MaxPooling1D(pool_size=3)(conv12)
-        norm12 = BatchNormalization()(pool12)
-#        conv13 = Conv1D(filters=128, kernel_size=16, activation='relu')(norm12)
-#        pool13 = MaxPooling1D(pool_size=2)(conv13)
-#        norm13 = BatchNormalization()(pool13)
-        concat_arr.append(Flatten()(norm12))
-    # merge input models
-    merge = concatenate(concat_arr)
-    # interpretation model
-    #hidden2 = Dense(100, activation='relu')(hidden1)
-    fullcon = Dense(300, activation='relu')(merge)
-    ID_output = Dense(1+nHIwav, activation='softmax', name='ID_output')(fullcon)
-    N_output = Dense(1, activation='linear', name='N_output')(fullcon)
-    z_output = Dense(1, activation='linear', name='z_output')(fullcon)
-    model = Model(inputs=inputs, outputs=[ID_output, N_output, z_output])
-    # Summarize layers
-    print(model.summary())
-    # Plot graph
-    plot_model(model, to_file='parks_model.png')
-    # Compile
-    loss = {'ID_output': 'categorical_crossentropy',
-            'N_output': mse_mask(),
-            'z_output': mse_mask()}
-    model.compile(loss=loss, optimizer='adam', metrics=['accuracy'])
-
-    # Now set the Parks et al. (2018) weights
-
-    return model
-
-
-# Load the parks model
 if __name__ == '__main__':
-    model = load_model()
+    #09:03:33.55 +26:28:36.3
+    fname = "spec-5778-56328-0546.fits"
+    fil = fits.open(fname)
+    flux, loglam = fil[1].data['flux'], fil[1].data['loglam']
+    z_qso = 3.219
+    parks_model(flux, loglam, z_qso, plot=True)
+
+"""
+with open(model_checkpoint + "_hyperparams.json", 'r') as fp:
+    hyperparameters = json.load(fp)
+    loc_pred, loc_conf = predictions_ann_c2(hyperparameters, c2_dataset.fluxes,
+                                            c2_dataset.labels, c2_offsets, model_checkpoint)
+
+(fig, ax) = plot(loc_conf, ylim=[0, 1], x=lam_rest[ix_dla_range], xlim=[REST_RANGE[0], 1250],
+                 z_qso=z_qso, x_label="DLA Localization confidence & localization prediction(s)")
+
+# Identify peaks from classification-2 results
+(peaks, peaks_uncentered, smoothed_sample, ixs_left, ixs_right) = \
+predictions_to_central_wavelength(loc_conf, 1, 50, 300)[0]
+#     print(np.shape(peaks), np.shape(peaks_uncentered), np.shape(loc_conf), np.shape(smoothed_sample))
+ax.plot(lam_rest[ix_dla_range], smoothed_sample, color='blue', alpha=0.9)
+
+for peak, peak_uncentered, ix_left, ix_right in zip(peaks, peaks_uncentered, ixs_left, ixs_right):
+    peak_lam_rest = lam_rest[ix_dla_range][peak]
+    if peak_lam_rest > 1250 or peak_lam_rest < REST_RANGE[0]:
+        print(" > Excluded peak: %0.0fA" % peak_lam_rest)
+        continue
+
+    # Plot peak '+' markers
+    ax.plot(lam_rest[ix_dla_range][peak_uncentered], loc_conf[peak_uncentered], '+', mew=3, ms=7, color='red',
+            alpha=1)
+    ax.plot(lam_rest[ix_dla_range][peak], smoothed_sample[peak], '+', mew=7, ms=15, color='blue', alpha=0.9)
+    ax.plot(lam_rest[ix_dla_range][ix_left], loc_conf[peak_uncentered] / 2, '+', mew=3, ms=7, color='orange',
+            alpha=1)
+    ax.plot(lam_rest[ix_dla_range][ix_right], loc_conf[peak_uncentered] / 2, '+', mew=3, ms=7, color='orange',
+            alpha=1)
+
+    # Column density estimate
+    density_data = DataSet(scan_flux_about_central_wavelength(data1['flux'], data1['loglam'], z_qso,
+                                                              peak_lam_rest * (1 + z_qso), 0, 80, 0, 0, 0, 400,
+                                                              0.2))
+
+    with open(MODEL_CHECKPOINT_R1 + "_hyperparams.json", 'r') as fp:
+        hyperparameters_r1 = json.load(fp)
+        density_pred = predictions_ann_r1(hyperparameters_r1, density_data.fluxes,
+                                          density_data.labels, MODEL_CHECKPOINT_R1)
+        density_pred_np = np.array(density_pred)
+
+    mean_col_density_prediction = np.mean(density_pred_np)
+
+    # Bar plot
+    fig_b, ax_b = plt.subplots(figsize=(15, 3.75))
+    ax_b.bar(np.arange(0, np.shape(density_pred_np)[1]), density_pred_np[0, :], 0.25)
+    ax_b.set_xlabel("Individual Column Density estimates for peak @ %0.0fA, +/- 0.3 of mean. " % (peak_lam_rest) +
+                    "Mean: %0.3f - Median: %0.3f - Stddev: %0.3f" % (np.mean(density_pred_np),
+                                                                     np.median(density_pred_np),
+                                                                     np.std(density_pred_np)))
+    plt.ylim([mean_col_density_prediction - 0.3, mean_col_density_prediction + 0.3])
+    ax_b.plot(np.arange(0, np.shape(density_pred_np)[1]),
+              np.ones((np.shape(density_pred_np)[1],), np.float32) * mean_col_density_prediction)
+
+    # Sightline plot transparent marker boxes
+    ax_sight.fill_between(lam_rest[ix_dla_range][peak - 10:peak + 10], y_plot_range, -2, color='gray', lw=0,
+                          alpha=0.1)
+    ax_sight.fill_between(lam_rest[ix_dla_range][peak - 30:peak + 30], y_plot_range, -2, color='gray', lw=0,
+                          alpha=0.1)
+    ax_sight.fill_between(lam_rest[ix_dla_range][peak - 50:peak + 50], y_plot_range, -2, color='gray', lw=0,
+                          alpha=0.1)
+    ax_sight.fill_between(lam_rest[ix_dla_range][peak - 70:peak + 70], y_plot_range, -2, color='gray', lw=0,
+                          alpha=0.1)
+
+    print(
+        " > DLA central wavelength at: %0.0fA rest / %0.0fA spectrum w/ confidence %0.2f, has Column Density: %0.3f"
+        % (peak_lam_rest, peak_lam_rest * (1 + z_qso), smoothed_sample[peak], mean_col_density_prediction))
+
+handles, labels = ax.get_legend_handles_labels()
+ax.legend(['DLA pred', 'Smoothed pred', 'Original peak', 'Recentered peak', 'Centering points'],
+          bbox_to_anchor=(0.25, 1.1))
+
+# Print URL
+print(" > http://dr12.sdss3.org/spectrumDetail?plateid=%d&mjd=%d&fiber=%d" % (pmf[0], pmf[1], pmf[2]))
+"""
