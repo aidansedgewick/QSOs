@@ -52,7 +52,8 @@ def parks_model(flux, loglam, z_qso, plot=False, print_summary=False):
 
 if __name__ == '__main__':
     #09:03:33.55 +26:28:36.3
-    fname = "spec-5778-56328-0546.fits"
+    #fname = "spec-5778-56328-0546.fits"
+    fname = "spec-4784-55677-0264.fits"
     fil = fits.open(fname)
     flux, loglam = fil[1].data['flux'], fil[1].data['loglam']
     z_qso = 3.219
