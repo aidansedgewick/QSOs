@@ -45,21 +45,21 @@ Lya = 1215.6701   # Rest frame Lya wavelength
 fval = 0.4164       # Oscillator Strength
 gamma = 6.265E8     # Einstein A coefficient
 
-restframe_window = 3.5 #Angstrom.
+
+
+rf_window = 3.5 #Angstrom.
+
+
+
 
 SDSS_min, SDSS_max = 3800.0, 9200.0 # Ang., limits of SDSS spectrometer.
-SDSS_wv_resolution = 2.0
-SDSS_wave = np.arange(SDSS_min, SDSS_max, SDSS_wv_resolution)
+SDSS_resolution = 1.0
+SDSS_wave = np.arange(SDSS_min, SDSS_max, SDSS_resolution)
 SDSS_smear = [2.0]
-
-
-SDSS_min, SDSS_max = 3800.0, 9200.0 # Ang., limits of SDSS spectrometer.
-SDSS_resolution = 2.0
-SDSS_wave = np.arange(SDSS_min, SDSS_max, SDSS_wv_resolution)
 
 SDSS_z_min = SDSS_min/Lya-1
 
-min_col_density = 17.0
+min_col_density = 19.5
 
 
 ###------------------ LOAD THE COMPOSITE --------------------###
@@ -111,15 +111,6 @@ SDSS_data = pd.read_csv(SDSS_QSOs_loc)
 # print(SDSS_data.columns)
 
 
-###------- THE FUNCTIONS ----------###
-# in order --
-# write: carriage-return print
-# midpoints: calc midpoints of an array
-# calc_DX: the absorption pathlength
-# voigt: the absorption profile
-# call_CPU: the instrument convolution
-# evaluate_Q: the log-likelihood of each score
-#
 
 
 def write(*args):
@@ -132,8 +123,12 @@ def write(*args):
     return None
 
 def midpoints(arr):
-    ''' Calculate the midpoints of an array '''
+    """ Calculate the midpoints of an array """
     return 0.5*(arr[1:] + arr[:-1])
+
+def binedges(bins):
+    """return a zip() of low edges and high edges of bins."""
+    return zip(bins[:-1],bins[1:])
 
 
 def calc_DX(z_max, z_min, z_points=1000, om_l=0.7, om_m=0.3):
@@ -522,6 +517,12 @@ def get_continuum_alt2(zem, wave, flux, idxnum=4):
     f = interpolate.interp1d(wvsm[asrt][idn], cont[idn], kind='linear', bounds_error=False)
     return f(wave)
 
+def calc_Npix(wv,spec_res=1.0):
+    """If a Ly-alpha absorber was at this wv, what would its width in
+        pixels be? Used to be: (1.0+zQSO)*rf_window//spec_res"""
+    z_DLA = wv/Lya-1.0
+    return (1.0+z_DLA)*rf_window//spec_res
+
 
 def evaluate_Q(fl,sig):
     '''See notes.
@@ -531,21 +532,21 @@ def evaluate_Q(fl,sig):
 
 
 
-def evaluate_scores(wv,fl,sig,Npix):
+def evaluate_scores(wv,fl,sig,old_Npix=None):
     '''See notes.
     Use **NORMALIZED** flux. Derive with: likelhood of Npix draw from zero (f=0),
     divided by Npix. likelihood of draw from continuum (ie,f=1), take logs.
 
     what is the fastest/best to do this...? Unsure. Surely a less ugly way than loops.'''
 
-    Npix = int(Npix)
+    Npix = calc_Npix(wv).astype('int')
 
     Q = evaluate_Q(fl,sig)    
 
     score_wave,score_vals = np.zeros(len(Q)),np.zeros(len(Q))
     ## Surely there is a less ugly way than a for loop...?!
     for i in range(len(Q)):
-        sl_min,sl_max = max(0,i-Npix//2),min(len(Q),i+Npix//2)
+        sl_min,sl_max = max(0,i-Npix[i]//2),min(len(Q),i+Npix[i]//2)
         slicer = slice( sl_min,sl_max )
         score_vals[i] = np.sum(Q[slicer])/float(len(Q[slicer]))
         score_wave[i] = wv[i]
@@ -572,18 +573,28 @@ def extract_features(z_QSO,scores_wv,score_vals,threshold,min_width=3.5,scaled=T
 
     (inds,) = np.where(score_vals > threshold) # np.where gives a len-1 tuple. unpack it to split...  
     feature_masks = consecutive( inds ) # List of arrays. Each arr is **indices** of consec pix above the thresh.
-    
-    feature_masks = [fm for fm in feature_masks if len(fm) >= min_width ]
+
+    # Do we want to do this at the end, though...?
+    #feature_masks = [fm for fm in feature_masks if len(fm) >= min_width ]
 
     score_zs = scores_wv/Lya - 1.0
-    
-    # SCALE the widths to redshift zero...
-    feature_widths = np.array([ len(fm) for fm in feature_masks ])
-    feature_zs = np.array([ np.average(score_zs[fm]) for fm in feature_masks ])
-    #feature_bs = np.array([ 15.0 for fm in feature_masks ])
+    shifted_scores = [ score_zs[fm]-min(score_zs[fm]) for fm in feature_masks ]
 
-    if scaled:
-        feature_widths = feature_widths/(1.0+z_QSO)
+
+    feature_zs = np.zeros(len(feature_masks))
+    #for i,fm in enumerate(feature_masks):
+    #    print(shifted_scores[i])
+    #    feature_zs[i] = np.average(score_zs[fm],weights=shifted_scores[i])
+
+    feature_zs = np.array([ np.average(score_zs[fm]) for fm in feature_masks ])
+
+
+
+    feature_widths = np.array([ len(fm) for fm in feature_masks ])
+    if scaled: # SCALE the widths to redshift zero...
+        feature_widths = feature_widths/(1.0+feature_zs) #(1.0+z_QSO)
+
+    #feature_bs = np.array([ 15.0 for fm in feature_masks ])
 
     sorted_feature_indices = np.argsort(feature_widths)
     feature_widths = feature_widths[ sorted_feature_indices[::-1] ]
@@ -596,11 +607,62 @@ def extract_features(z_QSO,scores_wv,score_vals,threshold,min_width=3.5,scaled=T
 def match_features(z_QSO,absorber_CDs,absorber_zs, #absorber_bs,
                     feature_widths,feature_zs,#feature_bs,
                     blank_value=-1.0,extras=None):
-    
+
+    # Rank the features from LARGEST to smallest.
+    sorted_feature_indices = np.argsort(feature_widths)[::-1]
+    feature_widths = feature_widths[ sorted_feature_indices ].copy()
+    feature_zs = feature_zs[ sorted_feature_indices ].copy()
+
+    # Rank the absorbers from LARGEST to smallest.
+    sorted_absorber_indices = np.argsort(absorber_CDs)[::-1]
+    absorber_CDs = absorber_CDs[ sorted_absorber_indices ].copy()
+    absorber_zs = absorber_zs[ sorted_absorber_indices ].copy()
+
     Ntuples = max( len(feature_widths),len(absorber_CDs) )
+    Nmatches = min( len(feature_widths),len(absorber_CDs) )
 
     this_QSO = []
 
+    for k in range(Ntuples):
+        if (k < len(absorber_CDs)) & (k < len(feature_widths)):
+            z_err = abs(feature_zs - absorber_zs[k])
+
+            i = np.argmin(z_err) # Choose the nearest in redshift.
+
+            this_feature = (z_QSO, absorber_CDs[k], absorber_zs[k],  # absorber_bs[k],
+                            feature_widths[i], feature_zs[i],k,i)  # , feature_bs[k])
+
+            feature_zs[i] = np.nan # 'Blank' this value from the list.
+            feature_widths[i] = np.nan # 'Blank' this value from the list.
+
+            if extras is not None:
+                this_feature = (*this_feature, *extras)
+
+            this_QSO.append(this_feature)
+
+        if k >= len(feature_widths):
+            this_feature = (z_QSO,absorber_CDs[k], absorber_zs[k], #absorber_bs[k],
+                                blank_value ,  blank_value,k,-1) #,  blank_value  )
+
+            if extras is not None:
+                this_feature = (*this_feature, *extras)
+
+            this_QSO.append(this_feature)
+
+        if k >=len(absorber_CDs):
+            break
+
+    for i in range(len(feature_widths)):
+        if np.isfinite(feature_widths[i]):
+            this_feature = (z_QSO, blank_value   ,  blank_value , # blank_value  ,
+                                feature_widths[i], feature_zs[i],-1,i) #, feature_bs[k])
+
+            if extras is not None:
+                this_feature = (*this_feature, *extras)
+
+            this_QSO.append(this_feature)
+
+    '''
     for k in range(Ntuples):
 
         if k >= len(absorber_CDs): # If we have more features than DLAs to associate...
@@ -610,7 +672,7 @@ def match_features(z_QSO,absorber_CDs,absorber_zs, #absorber_bs,
         elif k >= len(feature_widths): # If there are undetected DLAs...
             this_feature = (z_QSO,absorber_CDs[k], absorber_zs[k], #absorber_bs[k],
                                        blank_value ,  blank_value  ) #,  blank_value  )
-        
+
         else: # The 'normal' case where a feature matches a DLA.                
             this_feature = (z_QSO,absorber_CDs[k],absorber_zs[k], #absorber_bs[k],
                                   feature_widths[k], feature_zs[k]) #, feature_bs[k])
@@ -619,7 +681,54 @@ def match_features(z_QSO,absorber_CDs,absorber_zs, #absorber_bs,
             this_feature = (*this_feature,*extras)
 
         this_QSO.append(this_feature) 
+    '''
+
 
     return this_QSO
+
+
+
+
+def polyfitter(data, windowsize, order):
+    """
+    data : Data to be filtered
+    windowsize : must be odd
+    order : polynomial order (2 = quadratic)
+    """
+    coeffs = np.zeros((data.size, order+1))
+    fltdat = np.zeros(data.size)
+    winsz=(windowsize-1)//2
+    xfit = np.arange(windowsize) - winsz
+    for i in range(data.size):
+        wmin = max(0, i - winsz)
+        wmax = min(data.size, i + winsz)
+        dfit = data[wmin:wmax]
+        fitc = np.polyfit(xfit[wmin-i+winsz:wmax-i+winsz], dfit, order)
+        fltdat[i] = np.polyval(fitc, 0.0)
+        coeffs[i, :] = fitc
+    return fltdat, coeffs
+
+def MAD(arr):
+    med = np.median(arr)
+    absdev = abs(arr-med)
+    return np.median(absdev)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
