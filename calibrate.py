@@ -77,7 +77,7 @@ sdss = DLASurvey.load_SDSS_DR5(sample='all')
 slines, sdict = tset.grab_sightlines(sdss, flg_bal=0)
 
 
-threshold_vals = [-0.05,0.00,0.05] #np.arange(-0.5,0.5,0.05)# A list of threshold values
+threshold_vals = np.arange(-0.5,1.5,0.05) # A list of threshold values
 
 # Initialize the horrible data strucure:
 data_structure = [ [] for i in threshold_vals ]
@@ -172,7 +172,7 @@ for i,spec in enumerate(all_spec):
     QT.write(i + 1, nspec)
     plotting = False
 
-    if (plotting) & (med_snr_val > 2.0):
+    if (plotting): # & (med_snr_val > 2.0):
         fig = plt.figure()
         gs = plt.GridSpec(4, 4)
 
@@ -271,7 +271,7 @@ N_det = np.zeros( (len(min_widths),len(threshold_vals)) )
 for j, th in enumerate(threshold_vals):
     df = pd.DataFrame(data_structure[j], columns=cols)
 
-    print(df)
+    print('Threshold %.3f: %i features' %(th,len(df)))
 
     true_DLA_mask = (df['absorber_CDs'] > DLA_def)
     N_true = float(len(df[true_DLA_mask]))  # This should be the same every loop...!
@@ -413,16 +413,16 @@ dw = 2
 width_bins = np.arange(5,35+dw,dw)
 width_mids = QT.midpoints(width_bins)
 
-vals = [0.05]  # threshold_vals.copy()
+plotting_th_vals = [0.05]  # threshold_vals.copy()
 
 def logfunc(x,A,B,C):
     return A*np.log10(x+B) + C
 
 reject = True
-Nmad = 3
+Nmad = 3 # Reject outliers at N*MAD from median
 
 
-for k,w in enumerate(vals):
+for k,w in enumerate(plotting_th_vals):
     iw = np.digitize(w,threshold_vals)-1
 
     print(w,round(threshold_vals[iw],3))
@@ -465,11 +465,11 @@ for k,w in enumerate(vals):
 
     fig1, ax1 = plt.subplots(figsize=(6, 6))
     cp1 = ax1.scatter(df['feature_widths'],df['absorber_CDs'],c=df['zQSO'],s=1)
-    #ax1.scatter(width_mids,NH1_meds,color='r')
-    #ax1.scatter(width_mids,NH1_meds-NH1_mads,marker='x',color='r')
-    #ax1.plot(width_mids,logfunc(width_mids,*popt),color='r')
-    #ax1.plot(width_mids,logfunc(width_mids,*popt)+NH1_mads,'r--')
-    #ax1.plot(width_mids,logfunc(width_mids,*popt)-NH1_mads,'r--')
+    ax1.scatter(width_mids,NH1_meds,color='r')
+    ax1.scatter(width_mids,NH1_meds-NH1_mads,marker='x',color='r')
+    ax1.plot(width_mids,logfunc(width_mids,*popt),color='r')
+    ax1.plot(width_mids,logfunc(width_mids,*popt)+NH1_mads,'r--')
+    ax1.plot(width_mids,logfunc(width_mids,*popt)-NH1_mads,'r--')
 
     #ax1.plot(width_mids,allNH1_meds-Nmad*allNH1_mads,'r:')
     #ax1.plot(width_mids,allNH1_meds+Nmad*allNH1_mads,'r:')

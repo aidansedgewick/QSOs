@@ -199,26 +199,6 @@ def call_CPU(x, y, p):
             ret = np.fft.ifft(conv).real.copy()
             del conv
             return ret[df:df+ysize]
-        elif np.size(sigd) == szflx:
-            yb = y.copy()
-            df=np.min([np.int(np.ceil(fsigd/dwav).max()), ysize//2 - 1])
-                ### MODIFIED FROM ORIGINAL!!! extra 'int'
-            for i in range(szflx):
-                if sigd[i] == 0.0:
-                    yb[i] = y[i]
-                    continue
-                yval = np.zeros(2*df+1)
-                yval[df:2*df+1] = (x[df:2*df+1] - x[df])/sigd[i]
-                yval[:df] = (x[:df] - x[df])/sigd[i]
-                gaus = np.exp(-0.5*yval*yval)
-                size = ysize + gaus.size - 1
-                fsize = 2 ** np.int(np.ceil(np.log2(size))) # Use this size for a more efficient computation
-                conv  = np.fft.fft(y, fsize)
-                conv *= np.fft.fft(gaus/gaus.sum(), fsize)
-                ret   = np.fft.ifft(conv).real.copy()
-                yb[i] = ret[df:df+ysize][i]
-            del conv
-            return yb
         else:
             msgs.error("Afwhm and flux arrays have different sizes.")
     else: return y
@@ -226,14 +206,14 @@ def call_CPU(x, y, p):
 
 def generate_spectrum(z_QSO,sig1=0.05,sig2=0.05,wv_min=SDSS_min,wv_max=SDSS_max,wv_res=SDSS_resolution,
                         v_min=-9000.0,v_max=+3000.0,min_col_density=min_col_density,MW=400.0):
-    '''Generate a fake spectrum. Requires z_QSO (Lya emission redshift). 
+    """Generate a fake spectrum. Requires z_QSO (Lya emission redshift).
     Must return the observed wavelength, flux, error, and the absorbers' column densities and redshifts.
     
     Optional: sig1 & sig2 (noise paramters), wv_min & wv_max (limits of returned wv array),
     wv_res (spectral res of returned wv arr), v_min & v_max (min/max absorber recession vel from QSO in km/s), 
     min_col_density (the lowest col density to return), MW (the maximum expected width of any single absorber).
     All wv params in Angstroms.
-    '''
+    """
 
     ##------- INITIALISE SOME STUFF.
 
