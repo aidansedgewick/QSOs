@@ -2,4 +2,9 @@
 *.png
 CNN.ipynb
 
+*.pyc
+
 del_linetools/
+linetools/
+.idea/
+.ipynb_checkpoints/
