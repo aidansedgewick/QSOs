@@ -13,7 +13,7 @@ def print_stats(props):
     print("N(H I) = {0:.3f} +/- {1:.3f}".format(props['column_density'], props['std_column_density']))
     print("z_abs = {0:.6f}".format(props['z_dla']))
 
-def parks_model(flux, loglam, z_qso, plot=False, print_summary=False):
+def find_dlas(flux, loglam, z_qso, plot=False, print_summary=False):
     idnum = 0
     sl = Sightline(idnum, dlas=None, flux=flux, loglam=loglam, z_qso=z_qso)
     sl.process(model_checkpoint)
@@ -57,4 +57,4 @@ if __name__ == '__main__':
     fil = fits.open(fname)
     flux, loglam = fil[1].data['flux'], fil[1].data['loglam']
     z_qso = 3.219
-    parks_model(flux, loglam, z_qso, plot=True, print_summary=True)
+    find_dlas(flux, loglam, z_qso, plot=True, print_summary=True)

@@ -17,11 +17,13 @@ from scipy.optimize import curve_fit
 # from linetools.spectra.xspectrum1d import XSpectrum1D as xspec
 import QSOtools as QT
 import generate_fakespec as FS
+import parks_model as PM
 import warnings
 
 import pickle
 import time
 import sys
+import pdb
 import os
 
 ### Some constants
@@ -57,13 +59,13 @@ rf_window = 3.5 # The width of a 20.3 absorber at rf?
 ### Some preferences
 warnings.filterwarnings('ignore') # linetools is very noisy!
 
-nspec = 5000
+nspec = 10
 spec_pkl_loc = './calibrate_spec%i.pkl'%nspec
 
 spec_pkl_exists = os.path.exists(spec_pkl_loc)
 
 if spec_pkl_exists is False:
-    all_spec, all_absorbers = FS.generate_fakespec(nspec,mix=True)
+    all_spec, all_absorbers = FS.generate_fakespec(nspec,seed=12345678,mix=True)
     with open(spec_pkl_loc, 'wb') as f:
         pickle.dump((all_spec,all_absorbers),f)
 else:
@@ -79,7 +81,7 @@ slines, sdict = tset.grab_sightlines(sdss, flg_bal=0)
 
 threshold_vals = np.arange(-0.5,1.5,0.05) # A list of threshold values
 
-# Initialize the horrible data strucure:
+# Initialize the horrible data structure:
 data_structure = [ [] for i in threshold_vals ]
 cols = 'zQSO absorber_CDs absorber_zs feature_widths feature_zs k i specID snr'.split()
 
@@ -87,7 +89,7 @@ med_snr = []
 z_vals = []
 
 for i,spec in enumerate(all_spec):
-    if i>5000:
+    if i > 5000:
         break
 
     absorbers = all_absorbers[i]
@@ -100,6 +102,17 @@ for i,spec in enumerate(all_spec):
 
     zQSO = slines['ZEM'][isl]
     z_vals.append(zQSO)
+
+    # Run the Parks model
+    try:
+        ww = np.where(spec.wavelength.value!=0.0)
+        parks_res = PM.find_dlas(spec.flux.value[ww], np.log10(spec.wavelength.value[ww]), zQSO)
+    except:
+        print("Parks fail!")
+        continue
+    for ii in range(len(parks_res.dlas)):
+        print("DLA #{0:d}".format(ii + 1))
+        PM.print_stats(parks_res.dlas[ii])
 
     npix = (1.0+zQSO)*rf_window//spec_res
 
@@ -143,7 +156,7 @@ for i,spec in enumerate(all_spec):
     med_snr_val = np.nanmedian(snr)
     med_snr.append( med_snr_val )
 
-    score_wv,score_vals = QT.evaluate_scores(prox_wv,norm_fl,norm_er,npix)
+    score_wv, score_vals = QT.evaluate_scores(prox_wv,norm_fl,norm_er,npix)
 
     for j, th in enumerate(threshold_vals):
         # Look at the width of the
@@ -152,13 +165,13 @@ for i,spec in enumerate(all_spec):
         # Match the widest feature to the largest column density
         QSO_data = (zQSO, absorber_CDs, absorber_zs, feature_widths, feature_zs)
 
-        QSO_matches = QT.match_features(*QSO_data,extras=[i,med_snr_val])
+        QSO_matches = QT.match_features(*QSO_data, extras=[i,med_snr_val])
         data_structure[j].extend(QSO_matches)
 
         Nmatches = min(len(feature_widths), len(absorber_CDs))
 
         delta_z = abs(feature_zs[:Nmatches] - absorber_zs[:Nmatches])
-        '''if any(delta_z > 0.05):
+        if any(delta_z > 0.05):
             if nDLA < 2:
                 continue
 
@@ -167,7 +180,8 @@ for i,spec in enumerate(all_spec):
             print('widths:', feature_widths[:10])
 
             print('true z:', absorber_zs)
-            print('est_z:', feature_zs[:10])'''
+            print('est_z:', feature_zs[:10])
+    pdb.set_trace()
 
     QT.write(i + 1, nspec)
     plotting = False
