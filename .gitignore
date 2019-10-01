@@ -3,4 +3,12 @@
 CNN.ipynb
 *.pyc
 
+*.pyc
+
 del_linetools/
+linetools/
+.idea/
+.ipynb_checkpoints/*
+.idea/*
+.ipynb_checkpoints/*
+old/
