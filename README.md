@@ -16,11 +16,15 @@ linetools/:
 
 envolope.py: from RJC, estimates continuum - adapted into "get_continuum" in QSOtools, acts on spec-4784-55677-0264.fits.
 
+ExampleSpec.ipynb: Jupyter Notebook showing the steps to generate a spectrum, and match the features.
+
 QSOtools.py: contains all useful functions.
 
 QSO.py: uses these to generate fake spectra, and look at threshold. Needs a better name!
 
 voigt_profile.py: also in QSOtools.py. Could remove?
+
+
 
 ## Use:
 
