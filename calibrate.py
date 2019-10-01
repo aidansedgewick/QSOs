@@ -160,7 +160,7 @@ for i,spec in enumerate(all_spec):
 
     for j, th in enumerate(threshold_vals):
         # Look at the width of the
-        feature_widths, feature_zs = QT.extract_features(zQSO, score_wv, score_vals, threshold=th)
+        feature_widths, feature_zs, feature_prob = QT.extract_features(zQSO, score_wv, score_vals, fluxerr=[norm_fl, norm_er], threshold=th)
 
         # Match the widest feature to the largest column density
         QSO_data = (zQSO, absorber_CDs, absorber_zs, feature_widths, feature_zs)
@@ -176,6 +176,7 @@ for i,spec in enumerate(all_spec):
                 continue
 
             print('\nthresh=%.2f'%th )
+            print('Probs:', feature_prob[:10])
             print('True CD:', absorber_CDs)
             print('widths:', feature_widths[:10])
 

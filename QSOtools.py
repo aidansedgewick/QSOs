@@ -7,6 +7,7 @@ import scipy.integrate as integrate
 from scipy import interpolate
 from scipy.signal import medfilt, savgol_filter
 from scipy.special import wofz
+from scipy.stats import chi2
 import astropy.io.fits as fits
 import astropy.units as u
 
@@ -547,7 +548,7 @@ def consecutive(data, stepsize=1):
         return np.split(data, np.where(np.diff(data) != stepsize)[0]+1)
 
 
-def extract_features(z_QSO,scores_wv,score_vals,threshold,min_width=3.5,scaled=True):
+def extract_features(z_QSO,scores_wv,score_vals,fluxerr=[None, None],threshold=0.0,min_width=3.5,scaled=True):
     '''Find consecutive pixels with scores above the threshold.
         Returns their widths, estimated redshifts. '''
 
@@ -568,7 +569,15 @@ def extract_features(z_QSO,scores_wv,score_vals,threshold,min_width=3.5,scaled=T
 
     feature_zs = np.array([ np.average(score_zs[fm]) for fm in feature_masks ])
 
+    # Calculate probability that all pixels within the feature_mask is zero
+    if fluxerr[0] is not None:
+        feature_pr = np.array([chi2.cdf(np.sum((fluxerr[0][fm]/fluxerr[1][fm])**2), fm.size-1) for fm in feature_masks])
+#        for fm in feature_masks:
+#            chisq = np.sum((fluxerr[0][fm]/fluxerr[1][fm])**2)
+#            dof = fm.size-1
+#            pvalue = chisqprob(chisq, dof)
 
+    feature_zs = np.array([ np.average(score_zs[fm]) for fm in feature_masks ])
 
     feature_widths = np.array([ len(fm) for fm in feature_masks ])
     if scaled: # SCALE the widths to redshift zero...
@@ -581,7 +590,7 @@ def extract_features(z_QSO,scores_wv,score_vals,threshold,min_width=3.5,scaled=T
     feature_zs = feature_zs[ sorted_feature_indices[::-1] ]
     #feature_bs = feature_bs[ sorted_feature_indices[::-1] ]
 
-    return feature_widths,feature_zs #,feature_bs
+    return feature_widths,feature_zs, feature_pr #,feature_bs
 
 
 def match_features(z_QSO,absorber_CDs,absorber_zs, #absorber_bs,
