@@ -1,6 +1,13 @@
 *.pkl
 *.png
 CNN.ipynb
+*.pyc
 .ipynb_checkpoints/
 
 del_linetools/
+linetools/
+.idea/
+.ipynb_checkpoints/*
+.idea/*
+.ipynb_checkpoints/*
+old/
